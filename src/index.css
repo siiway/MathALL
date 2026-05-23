@@ -272,7 +272,7 @@ body {
 .input-bar {
   position: absolute;
   top: 12px;
-  left: 50%;
+  left: calc((100% - 372px) / 2);
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
@@ -764,4 +764,254 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Drag and Drop File Upload Overlay */
+.drag-drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 185, 129, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 20000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+  pointer-events: none; /* Let dragleave trigger correctly on outer container */
+}
+
+.drag-drop-box {
+  background: var(--panel-bg);
+  border: 3px dashed var(--primary-color);
+  border-radius: 24px;
+  padding: 40px 60px;
+  text-align: center;
+  box-shadow: var(--shadow-lg), 0 0 30px rgba(16, 185, 129, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 90%;
+  animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.drag-drop-icon {
+  color: var(--primary-color);
+  animation: bounce 1.5s infinite;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+/* Mobile Responsiveness Optimizations */
+@media (max-width: 768px) {
+  .btn-text {
+    display: none !important;
+  }
+  
+  /* Make buttons more compact and square/circle-shaped on mobile */
+  .btn {
+    padding: 8px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    border-radius: 8px !important;
+  }
+
+  .model-selector-btn {
+    min-width: auto !important;
+    padding: 8px !important;
+  }
+
+  .app-header {
+    padding: 8px 12px !important;
+  }
+
+  .logo-text {
+    font-size: 1.3rem !important;
+  }
+
+  .logo-badge {
+    font-size: 0.65rem !important;
+    padding: 2px 5px !important;
+  }
+
+  .input-bar {
+    width: 100% !important;
+    position: relative !important;
+    top: 0 !important;
+    left: 0 !important;
+    transform: none !important;
+    margin-bottom: 8px;
+    padding: 8px !important;
+    z-index: 10;
+  }
+
+  .main-content {
+    display: block !important;
+    position: relative !important;
+    flex: 1 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .canvas-area {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0 !important;
+    z-index: 1 !important;
+  }
+
+  .properties-panel {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 50vh !important;
+    max-height: 70vh !important;
+    z-index: 10 !important;
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(16px) !important;
+    border-radius: 20px 20px 0 0 !important;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.1) !important;
+    padding: 16px !important;
+    overflow-y: auto !important;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    /* When active, it slides up into view. */
+    transform: translateY(0);
+  }
+
+  /* In dark mode, update drawer background */
+  body.dark-mode .properties-panel {
+    background: rgba(30, 30, 30, 0.85) !important;
+  }
+
+  .app-container {
+    height: 100dvh !important;
+    overflow: hidden !important;
+  }
+
+  /* Mobile Tab Bar styles */
+  .mobile-tab-bar {
+    display: flex !important;
+    order: 3;
+    flex-shrink: 0;
+    justify-content: space-around;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(0,0,0,0.05);
+    padding: 8px 0;
+    z-index: 50;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  body.dark-mode .mobile-tab-bar {
+    background: rgba(30, 30, 30, 0.95);
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .mobile-tab-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    padding: 4px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .mobile-tab-btn.active {
+    color: var(--primary-color);
+  }
+
+  .mobile-tab-btn.active svg {
+    transform: scale(1.1);
+  }
+
+  /* When tab is canvas, slide the drawer down */
+  .properties-panel.mobile-hide {
+    transform: translateY(110%) !important;
+    pointer-events: none !important;
+    display: block !important; /* Override the old display:none logic */
+  }
+  
+  /* Ensure other mobile-hide elements (if any) are properly hidden */
+  .panel-section.mobile-hide {
+    display: none !important;
+  }
+
+  /* Optimize modal display on mobile */
+  .image-modal-content {
+    width: 95% !important;
+    padding: 12px !important;
+  }
+}
+
+/* Base styles for mobile elements (hidden on desktop) */
+.mobile-tab-bar {
+  display: none;
+}
+
+.mobile-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-end;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.mobile-sheet-content {
+  width: 100%;
+  background: var(--bg-color);
+  border-radius: 20px 20px 0 0;
+  padding: 16px;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+
+.mobile-sheet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.mobile-sheet-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }

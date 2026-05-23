@@ -77,6 +77,10 @@ function App() {
   const [_logoClickCount, setLogoClickCount] = useState(0);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const logoClickTimerRef = useRef<number | null>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragCounterRef = useRef(0);
+  const [activeMobileTab, setActiveMobileTab] = useState<'canvas' | 'analysis' | 'params'>('canvas');
+  const [isMobileUploadOpen, setIsMobileUploadOpen] = useState(false);
 
   const handleLogoClick = useCallback(() => {
     setLogoClickCount(prev => {
@@ -260,6 +264,127 @@ function App() {
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
   }, [maxImages]);
+
+  useEffect(() => {
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current++;
+      if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+        setIsDraggingFile(true);
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current--;
+      if (dragCounterRef.current === 0) {
+        setIsDraggingFile(false);
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      setIsDraggingFile(false);
+      dragCounterRef.current = 0;
+
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length === 0) return;
+
+      let importedImages: File[] = [];
+      let ggbFile: File | null = null;
+      let jsonFile: File | null = null;
+
+      for (const file of files) {
+        if (file.type.startsWith('image/')) {
+          importedImages.push(file);
+        } else if (file.name.endsWith('.ggb')) {
+          ggbFile = file;
+        } else if (file.name.endsWith('.json')) {
+          jsonFile = file;
+        }
+      }
+
+      if (jsonFile) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+             const data = JSON.parse(event.target?.result as string);
+             setProblemText(data.problemText || '');
+             setStreamingTag(data.tag || '');
+             setAiCode(data.aiCode || '');
+             setHtmlContent(data.htmlContent || '');
+             setRendererMode(data.rendererMode || 'GEOGEBRA');
+             
+             setTimeout(() => {
+               if (data.ggbBase64 && ggbApiRef.current && data.rendererMode !== 'HTML_CANVAS') {
+                  ggbApiRef.current.setBase64(data.ggbBase64);
+               }
+             }, 500);
+             setToast({ message: 'JSON 项目配置已成功导入', type: 'success' });
+          } catch (err) {
+             setToast({ message: '无效的 JSON 文件或解析失败', type: 'error' });
+          }
+        };
+        reader.readAsText(jsonFile);
+      }
+
+      if (ggbFile) {
+        if (rendererMode === 'HTML_CANVAS') {
+          setToast({ message: '当前不是画板模式，请先切换再导入 GGB 文件', type: 'info' });
+        } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const base64Url = event.target?.result as string; 
+            const base64 = base64Url.split(',')[1];
+            if (ggbApiRef.current) {
+                ggbApiRef.current.setBase64(base64);
+                setToast({ message: 'GGB 画板文件已成功导入', type: 'success' });
+            } else {
+                setToast({ message: '画板未准备就绪，无法导入', type: 'info' });
+            }
+          };
+          reader.readAsDataURL(ggbFile);
+        }
+      }
+
+      if (importedImages.length > 0) {
+        let processed = 0;
+        const newImages: string[] = [];
+        for (const file of importedImages) {
+          const reader = new FileReader();
+          reader.onload = ev => {
+            newImages.push(ev.target?.result as string);
+            processed++;
+            if (processed === importedImages.length) {
+               setImagesBase64(prev => {
+                 const combined = [...prev, ...newImages];
+                 return combined.slice(0, maxImages);
+               });
+               setIsImageModalOpen(true);
+               setToast({ message: `已导入 ${importedImages.length} 张题目图片`, type: 'success' });
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [rendererMode, maxImages]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -724,6 +849,15 @@ function App() {
 
   return (
     <>
+      {isDraggingFile && (
+        <div className="drag-drop-overlay">
+          <div className="drag-drop-box">
+            <Upload size={48} className="drag-drop-icon" />
+            <h3 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>松开鼠标导入文件</h3>
+            <p style={{ margin: 0, fontSize: '0.95rem', opacity: 0.85 }}>支持拖入 GGB 画板文件、MathALL 项目 JSON 状态，或题目图片</p>
+          </div>
+        </div>
+      )}
       <AlgebraCalculator
         ggbApi={ggbApiRef.current}
         isOpen={isAlgebraCalculatorOpen}
@@ -917,7 +1051,7 @@ function App() {
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
           </button>
           <button className="btn btn-outline" onClick={() => navigate('/settings')}>
-            <Settings size={18} /> 设置
+            <Settings size={18} /> <span className="btn-text">设置</span>
           </button>
           
           <div
@@ -926,9 +1060,17 @@ function App() {
           >
              <button
                className="btn btn-outline"
-               onClick={() => { setIsUploadOpen(!isUploadOpen); setIsDownloadOpen(false); setIsModelSelectorOpen(false); }}
+               onClick={() => {
+                 if (window.innerWidth <= 768) {
+                   setIsMobileUploadOpen(true);
+                 } else {
+                   setIsUploadOpen(!isUploadOpen);
+                   setIsDownloadOpen(false);
+                   setIsModelSelectorOpen(false);
+                 }
+               }}
              >
-               <Upload size={18} /> 上传
+               <Upload size={18} /> <span className="btn-text">上传</span>
              </button>
 
              {isUploadOpen && (
@@ -961,7 +1103,7 @@ function App() {
                className="btn btn-primary"
                onClick={() => { setIsDownloadOpen(!isDownloadOpen); setIsUploadOpen(false); setIsModelSelectorOpen(false); }}
              >
-               <Download size={18} /> 下载
+               <Download size={18} /> <span className="btn-text">下载</span>
              </button>
 
              {isDownloadOpen && (
@@ -1001,6 +1143,31 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* Mobile Tab Switcher */}
+      <div className="mobile-tab-bar">
+        <button 
+          className={`mobile-tab-btn ${activeMobileTab === 'canvas' ? 'active' : ''}`}
+          onClick={() => setActiveMobileTab('canvas')}
+        >
+          <ImagePlus size={18} />
+          <span>几何画板</span>
+        </button>
+        <button 
+          className={`mobile-tab-btn ${activeMobileTab === 'analysis' ? 'active' : ''}`}
+          onClick={() => setActiveMobileTab('analysis')}
+        >
+          <Bot size={18} />
+          <span>分析代码</span>
+        </button>
+        <button 
+          className={`mobile-tab-btn ${activeMobileTab === 'params' ? 'active' : ''}`}
+          onClick={() => setActiveMobileTab('params')}
+        >
+          <Sliders size={18} />
+          <span>控制测算</span>
+        </button>
+      </div>
 
       <div className="main-content">
         {isImageModalOpen && (
@@ -1050,9 +1217,8 @@ function App() {
           </div>
         )}
 
-        <div className="canvas-area" style={{ position: 'relative' }}>
-          <div className="input-bar glass-panel">
-            <input 
+        <div className="input-bar glass-panel">
+          <input 
               type="file" 
               multiple
               ref={fileInputRef} 
@@ -1086,7 +1252,13 @@ function App() {
               <button 
                 className="btn btn-outline" 
                 style={{ border: 'none', background: 'var(--bg-color)', padding: '8px 12px', flexShrink: 0, borderRadius: '8px' }} 
-                onClick={() => imagesBase64.length > 0 ? setIsImageModalOpen(true) : fileInputRef.current?.click()}
+                onClick={() => {
+                  if (window.innerWidth <= 768) {
+                    setIsMobileUploadOpen(true);
+                  } else {
+                    imagesBase64.length > 0 ? setIsImageModalOpen(true) : fileInputRef.current?.click();
+                  }
+                }}
                 onMouseEnter={() => setIsUploadBtnHovered(true)}
                 onMouseLeave={() => setIsUploadBtnHovered(false)}
                 title="上传图片 (或直接 Ctrl+V 粘贴)"
@@ -1099,14 +1271,14 @@ function App() {
                         <div className="badge-counter" style={{ top: -6, right: -6 }}>+{imagesBase64.length - 1}</div>
                       )}
                     </div>
-                    <span style={{ fontWeight: 500, fontSize: '0.9rem', color: isUploadBtnHovered ? 'var(--primary-color)' : 'inherit' }}>
+                    <span className="btn-text" style={{ fontWeight: 500, fontSize: '0.9rem', color: isUploadBtnHovered ? 'var(--primary-color)' : 'inherit' }}>
                       {isUploadBtnHovered ? '点击修改' : '已选图片'}
                     </span>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
                     <ImagePlus size={18} />
-                    <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>添加图片</span>
+                    <span className="btn-text" style={{ fontWeight: 500, fontSize: '0.9rem' }}>添加图片</span>
                   </div>
                 )}
               </button>
@@ -1139,7 +1311,7 @@ function App() {
                   style={{ minWidth: '140px', justifyContent: 'space-between' }}
                 >
                   <Bot size={16} style={{ flexShrink: 0, color: 'var(--primary-color)' }} />
-                  <span style={{
+                  <span className="btn-text" style={{
                     flex: 1,
                     textAlign: 'left',
                     marginLeft: '6px',
@@ -1210,11 +1382,14 @@ function App() {
               style={{ flexShrink: 0 }}
             >
               <RefreshCw size={18} className={isGenerating ? "animate-spin" : ""} />
-              {isGenerating ? "生成中..." : (hasGenerated && lastGeneratedModelId === selectedModelId ? "重新生成" : "分析与生成")}
+              <span className="btn-text">
+                {isGenerating ? "生成中..." : (hasGenerated && lastGeneratedModelId === selectedModelId ? "重新生成" : "分析与生成")}
+              </span>
             </button>
           </div>
 
-          <div className="ggb-wrapper" style={{ position: 'relative' }}>
+          <div className="canvas-area" style={{ position: 'relative' }}>
+            <div className="ggb-wrapper" style={{ position: 'relative' }}>
              {rendererMode !== 'HTML_CANVAS' && (
                <>
                  <div style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 100, display: 'flex', gap: '8px' }}>
@@ -1321,8 +1496,8 @@ function App() {
           </div>
         </div>
 
-        <aside className="glass-panel properties-panel">
-          <div className="panel-section">
+        <aside className={`glass-panel properties-panel ${activeMobileTab === 'canvas' ? 'mobile-hide' : ''}`}>
+          <div className={`panel-section ${activeMobileTab !== 'analysis' ? 'mobile-hide' : ''}`}>
             <h3 className="panel-title">原始题目</h3>
             <div className="panel-placeholder">
                {problemText && <div style={{ marginBottom: '12px', whiteSpace: 'pre-wrap' }}>{problemText}</div>}
@@ -1379,7 +1554,7 @@ function App() {
             </div>
           </div>
 
-          <div className="panel-section">
+          <div className={`panel-section ${activeMobileTab !== 'analysis' ? 'mobile-hide' : ''}`}>
             <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsGgbCodeExpanded(!isGgbCodeExpanded)}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>GGB 代码</span>
@@ -1499,7 +1674,7 @@ function App() {
           </div>
 
           {rendererMode !== 'HTML_CANVAS' && (
-            <div className="panel-section">
+            <div className={`panel-section ${activeMobileTab !== 'params' ? 'mobile-hide' : ''}`}>
               <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsDynamicParamsExpanded(!isDynamicParamsExpanded)}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Sliders size={18} style={{ color: 'var(--primary-color)' }} />
@@ -1630,7 +1805,7 @@ function App() {
             </div>
           )}
 
-          <div className="panel-section" style={{ flex: isAiCodeExpanded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
+          <div className={`panel-section ${activeMobileTab !== 'analysis' ? 'mobile-hide' : ''}`} style={{ flex: isAiCodeExpanded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
             <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsAiCodeExpanded(!isAiCodeExpanded)}>
               <span>AI 指令流与解析</span>
               {isAiCodeExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
@@ -1654,7 +1829,7 @@ function App() {
             )}
           </div>
 
-          <div className="panel-section">
+          <div className={`panel-section ${activeMobileTab !== 'params' ? 'mobile-hide' : ''}`}>
             <h3 className="panel-title">代数暴力测算工具</h3>
             <button
               className="btn btn-primary"
@@ -1677,6 +1852,78 @@ function App() {
         </aside>
       </div>
     </div>
+      {isMobileUploadOpen && (
+        <div className="mobile-sheet-overlay" onClick={() => setIsMobileUploadOpen(false)}>
+          <div className="mobile-sheet-content" onClick={e => e.stopPropagation()}>
+            <div className="mobile-sheet-handle" />
+            <div className="mobile-sheet-header">
+              <h3>导入与上传</h3>
+              <button className="btn-close" onClick={() => setIsMobileUploadOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mobile-sheet-body">
+              <button 
+                className="mobile-sheet-item"
+                onClick={() => {
+                  setIsMobileUploadOpen(false);
+                  fileInputRef.current?.setAttribute('capture', 'environment');
+                  fileInputRef.current?.click();
+                }}
+              >
+                <div className="mobile-sheet-icon-wrapper">
+                  <ImagePlus size={22} style={{ color: '#ec4899' }} />
+                </div>
+                <div className="mobile-sheet-text">
+                  <strong>📸 拍照上传</strong>
+                  <span>直接使用手机相机拍摄数学题目并识别</span>
+                </div>
+              </button>
+
+              <button 
+                className="mobile-sheet-item"
+                onClick={() => {
+                  setIsMobileUploadOpen(false);
+                  fileInputRef.current?.removeAttribute('capture');
+                  fileInputRef.current?.click();
+                }}
+              >
+                <div className="mobile-sheet-icon-wrapper">
+                  <ImagePlus size={22} style={{ color: 'var(--primary-color)' }} />
+                </div>
+                <div className="mobile-sheet-text">
+                  <strong>🖼️ 从相册选择</strong>
+                  <span>从系统相册中选取题目图片进行分析</span>
+                </div>
+              </button>
+
+              <div className="mobile-sheet-divider" />
+
+              <label className="mobile-sheet-item">
+                <div className="mobile-sheet-icon-wrapper">
+                  <Upload size={22} style={{ color: '#3b82f6' }} />
+                </div>
+                <div className="mobile-sheet-text">
+                  <strong>📂 导入 JSON 项目</strong>
+                  <span>恢复导出的 MathALL 项目完整配置与解析</span>
+                </div>
+                <input type="file" accept=".json" style={{display: 'none'}} onChange={handleImportJSON} />
+              </label>
+
+              <label className="mobile-sheet-item">
+                <div className="mobile-sheet-icon-wrapper">
+                  <Upload size={22} style={{ color: '#f59e0b' }} />
+                </div>
+                <div className="mobile-sheet-text">
+                  <strong>📐 导入 GGB 画板</strong>
+                  <span>导入现有的 GeoGebra 课件或画板文件 (.ggb)</span>
+                </div>
+                <input type="file" accept=".ggb" style={{display: 'none'}} onChange={handleImportGGB} />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
