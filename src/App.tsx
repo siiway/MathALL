@@ -437,9 +437,10 @@ function App() {
 
   // Helper function to detect MODE from code
   const detectModeFromCode = useCallback((code: string): 'classic' | '3d' | 'geometry' | null => {
-    if (code.includes('MODE: 3D') || code.includes('MODE:3D')) {
+    const cleanCode = code.toUpperCase().replace(/\s+/g, '');
+    if (cleanCode.includes('MODE:3D')) {
       return '3d';
-    } else if (code.includes('MODE: 2D') || code.includes('MODE:2D')) {
+    } else if (cleanCode.includes('MODE:2D')) {
       return 'classic';
     }
     return null;
@@ -450,11 +451,11 @@ function App() {
     if (!content) return '';
 
     // Pattern 1: 【RESULT】...【/RESULT】 (Chinese brackets)
-    let match = content.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
+    let match = content.match(/【RESULT】([\s\S]*?)【\/RESULT】/i);
     if (match) return match[1].trim();
 
     // Pattern 2: ```RESULT\n...\n```
-    match = content.match(/```RESULT\s*\n([\s\S]*?)```/);
+    match = content.match(/```RESULT\s*\n([\s\S]*?)```/i);
     if (match) return match[1].trim();
 
     // Pattern 3: ```ggb\n...\n``` or ```geogebra\n...\n```
@@ -462,11 +463,11 @@ function App() {
     if (match) return match[1].trim();
 
     // Pattern 4: **RESULT**\n...\n (without code fence)
-    match = content.match(/\*\*RESULT\*\*\s*\n([\s\S]*?)(?=\n\n|\n\*\*|$)/);
+    match = content.match(/\*\*RESULT\*\*\s*\n([\s\S]*?)(?=\n\n|\n\*\*|$)/i);
     if (match) return match[1].trim();
 
     // Pattern 5: RESULT:\n...\n
-    match = content.match(/RESULT:?\s*\n([\s\S]*?)(?=\n\n|\n#|$)/);
+    match = content.match(/RESULT:?\s*\n([\s\S]*?)(?=\n\n|\n#|$)/i);
     if (match) return match[1].trim();
 
     return content;

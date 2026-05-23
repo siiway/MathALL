@@ -56,6 +56,12 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
   const apiRef = useRef<GeoGebraAPI | null>(null);
   const injectedRef = useRef(false);
 
+  // Use a ref to store the latest onReady callback to prevent stale closure issues
+  const onReadyRef = useRef(onReady);
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
+
   const handleAppletLoad = useCallback(() => {
     // The GGB API is available on the global scope as `window[id]`
     const api = (window as unknown as Record<string, GeoGebraAPI>)[id];
@@ -103,7 +109,7 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
         console.warn('Failed to set GeoGebra background color via XML:', e);
       }
 
-      onReady?.(api);
+      onReadyRef.current?.(api);
     }
   }, [id, appName]);
 
@@ -160,7 +166,7 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
         } else if (appName === '3d') {
           api.evalCommand('SetPerspective("T")');
         }
-        onReady?.(api);
+        onReadyRef.current?.(api);
       },
     };
 

@@ -251,7 +251,7 @@ export async function* fetchAIAnalysisStream(
               if (match) {
                    tagFinished = true;
                    const finalTag = match[1];
-                   const isPureAlgebra = finalTag.includes("代数") || finalTag.includes("计算") || finalTag.includes("方程") || finalTag.includes("答疑") || finalTag.includes("解析");
+                   const isPureAlgebra = (finalTag.includes("代数") || finalTag.includes("计算") || finalTag.includes("方程") || finalTag.includes("答疑") || finalTag.includes("解析")) && !finalTag.includes("几何");
 
                    const tagEndIndex = accumulatedTag.indexOf('】') + 1;
                    const contentAfterTag = accumulatedTag.substring(tagEndIndex);
