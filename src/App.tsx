@@ -88,13 +88,21 @@ function App() {
     setProblemText(e.target.value);
     const target = e.target;
     target.style.height = 'auto';
-    target.style.height = `${Math.min(target.scrollHeight, 140)}px`;
+    if (!e.target.value) {
+      target.style.height = '36px';
+    } else {
+      target.style.height = `${Math.min(target.scrollHeight, 140)}px`;
+    }
   };
 
   useEffect(() => {
     if (isInputExpanded && textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 140)}px`;
+      if (!problemText) {
+        textareaRef.current.style.height = '36px';
+      } else {
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 140)}px`;
+      }
     }
   }, [problemText, isInputExpanded]);
 

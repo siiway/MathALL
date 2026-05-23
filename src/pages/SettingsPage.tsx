@@ -48,7 +48,7 @@ interface SearchableItem {
 }
 
 const SEARCHABLE_ITEMS: SearchableItem[] = [
-  { id: 'theme', label: '主题显示模式 (浅色/深色/Arwes)', category: 'appearance', keywords: ['theme', 'dark', 'light', 'mode', '主题', '深色', '浅色', '模式'] },
+  { id: 'theme', label: '主题显示模式 (浅色/深色)', category: 'appearance', keywords: ['theme', 'dark', 'light', 'mode', '主题', '深色', '浅色', '模式'] },
   { id: 'primary-color', label: '应用主题色 (主色调)', category: 'appearance', keywords: ['color', 'primary', 'theme color', '颜色', '主题色', '主色'] },
   { id: 'cors', label: '网络与跨域优化 (CORS 代理)', category: 'ai', keywords: ['cors', 'proxy', 'network', '跨域', '代理', '网络'] },
   { id: 'ai-models', label: 'AI 模型配置列表', category: 'ai', keywords: ['model', 'api', 'key', 'openai', 'gemini', 'claude', '模型', '接口'] },
@@ -340,10 +340,12 @@ export default function SettingsPage() {
                     <Moon size={14} /> 深色
                   </button>
                   <button
-                    className={`segmented-btn ${theme === 'arwes' ? 'active' : ''}`}
-                    onClick={() => setTheme('arwes')}
+                    className="segmented-btn"
+                    disabled
+                    style={{ opacity: 0.5, cursor: 'not-allowed' }}
+                    title="该主题已废弃"
                   >
-                    Arwes
+                    Arwes(废弃)
                   </button>
                 </div>
               </div>
@@ -614,6 +616,8 @@ export default function SettingsPage() {
                           className="settings-input"
                           placeholder={baseUrlPlaceholder}
                           value={model.baseUrl}
+                          disabled={true}
+                          style={{ opacity: 0.6, cursor: 'not-allowed' }}
                           onChange={e => updateModel(model.id, { baseUrl: e.target.value })}
                         />
                       </div>
@@ -623,8 +627,10 @@ export default function SettingsPage() {
                         <input
                           type="password"
                           className="settings-input"
-                          placeholder="sk-..."
+                          placeholder="此应用的自定义 API 功能已被封闭"
                           value={model.apiKey}
+                          disabled={true}
+                          style={{ opacity: 0.6, cursor: 'not-allowed' }}
                           onChange={e => updateModel(model.id, { apiKey: e.target.value })}
                         />
                       </div>
