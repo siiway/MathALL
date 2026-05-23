@@ -1,7 +1,7 @@
 {
   "name": "mathall",
   "private": true,
-  "version": "1.0.0",
+  "version": "PRE-2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,9 @@
     "react-markdown": "^9.0.1",
     "react-router": "^7.14.0",
     "rehype-katex": "^7.0.0",
-    "remark-math": "^6.0.0"
+    "remark-math": "^6.0.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

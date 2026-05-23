@@ -19,7 +19,7 @@ const WEB_SAFE_COLORS = [
   { name: 'Pink', hex: '#ec4899' },
 ];
 
-const APP_VERSION = 'v1.0.0';
+const APP_VERSION = 'PRE-2.0.0';
 
 type SettingsSection = 'appearance' | 'ai' | 'prompt' | 'experimental' | 'about';
 
@@ -39,6 +39,28 @@ interface SidebarItem {
   iconBg: string; // for iOS mobile list
 }
 
+interface SearchableItem {
+  id: string;
+  label: string;
+  category: SettingsSection;
+  keywords: string[];
+}
+
+const SEARCHABLE_ITEMS: SearchableItem[] = [
+  { id: 'theme', label: '主题显示模式 (浅色/深色/Arwes)', category: 'appearance', keywords: ['theme', 'dark', 'light', 'mode', '主题', '深色', '浅色', '模式'] },
+  { id: 'primary-color', label: '应用主题色 (主色调)', category: 'appearance', keywords: ['color', 'primary', 'theme color', '颜色', '主题色', '主色'] },
+  { id: 'cors', label: '网络与跨域优化 (CORS 代理)', category: 'ai', keywords: ['cors', 'proxy', 'network', '跨域', '代理', '网络'] },
+  { id: 'ai-models', label: 'AI 模型配置列表', category: 'ai', keywords: ['model', 'api', 'key', 'openai', 'gemini', 'claude', '模型', '接口'] },
+  { id: 'prompt', label: '系统提示词 (System Prompt)', category: 'prompt', keywords: ['prompt', 'system', 'instruction', '提示词', '指令', '规则'] },
+  { id: 'max-images', label: '最大上传图片数量', category: 'experimental', keywords: ['image', 'upload', 'limit', '图片', '上传', '限制', '数量'] },
+  { id: 'image-threshold', label: '图片模态框显示阈值', category: 'experimental', keywords: ['image', 'modal', 'threshold', '图片', '阈值', '显示'] },
+  { id: 'canvas-fullscreen', label: '启用画板全屏按钮', category: 'experimental', keywords: ['fullscreen', 'canvas', 'button', '全屏', '画板', '按钮'] },
+  { id: 'ggb-edit', label: '允许编辑 GGB 代码', category: 'experimental', keywords: ['edit', 'ggb', 'code', 'geogebra', '编辑', '代码'] },
+  { id: 'debug-panel', label: '启用调试窗口 (Bug 图标)', category: 'experimental', keywords: ['debug', 'bug', 'panel', '调试', '面板', '窗口'] },
+  { id: 'console', label: '启用控制台 (Terminal 图标)', category: 'experimental', keywords: ['console', 'terminal', 'cmd', '控制台', '终端', '命令行'] },
+  { id: 'about', label: '关于 MathAll (版本/版权)', category: 'about', keywords: ['version', 'about', 'copyright', '版本', '关于', '版权'] },
+];
+
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'appearance', label: '外观与主题', icon: <Palette size={16} />, iconBg: '#007aff' },
   { id: 'ai', label: 'AI 模型配置', icon: <Bot size={16} />, iconBg: '#34c759' },
@@ -55,7 +77,7 @@ export default function SettingsPage() {
 
   // Settings state
   const [theme, setTheme] = useState(() =>
-    (localStorage.getItem('mathall-theme') || 'light') as 'light' | 'dark' | 'industrial'
+    (localStorage.getItem('mathall-theme') || 'light') as 'light' | 'dark' | 'arwes'
   );
   const [primaryColor, setPrimaryColor] = useState(() =>
     localStorage.getItem('mathall-primary-color') || '#10b981'
@@ -103,6 +125,15 @@ export default function SettingsPage() {
   );
   const [enableGgbCodeEdit, setEnableGgbCodeEdit] = useState(() =>
     localStorage.getItem('mathall-enable-ggb-code-edit') === 'true'
+  );
+  const [enableDebugPanel, setEnableDebugPanel] = useState(() =>
+    localStorage.getItem('mathall-enable-debug-panel') === 'true'
+  );
+  const [enableConsole, setEnableConsole] = useState(() =>
+    localStorage.getItem('mathall-enable-console') === 'true'
+  );
+  const [corsProxy, setCorsProxy] = useState(() =>
+    localStorage.getItem('mathall-cors-proxy') || ''
   );
 
   // Auto-save on change
@@ -162,8 +193,30 @@ export default function SettingsPage() {
     window.dispatchEvent(new Event('mathall-settings-updated'));
   }, [enableGgbCodeEdit]);
 
+  useEffect(() => {
+    localStorage.setItem('mathall-enable-debug-panel', enableDebugPanel.toString());
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [enableDebugPanel]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-enable-console', enableConsole.toString());
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [enableConsole]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-cors-proxy', corsProxy);
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [corsProxy]);
+
   const filteredItems = SIDEBAR_ITEMS
     .filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const filteredSearchItems = searchQuery.trim() !== ''
+    ? SEARCHABLE_ITEMS.filter(item =>
+        item.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.keywords.some(k => k.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+    : [];
 
   // Detect mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -199,7 +252,57 @@ export default function SettingsPage() {
     setAiModels(aiModels.map(m => m.id === id ? { ...m, ...updates } : m));
   };
 
+  const handleSearchResultClick = (category: SettingsSection, _id: string) => {
+    setActiveSection(category);
+    setSearchQuery('');
+    // TODO: Scroll to element or highlight
+  };
+
   const renderSectionContent = (section: SettingsSection) => {
+    if (searchQuery.trim() !== '') {
+      return (
+        <div className="search-results-content">
+          <div className="search-results-header">
+            <Search size={20} className="search-results-icon" />
+            <h2>搜索结果: "{searchQuery}"</h2>
+          </div>
+
+          {filteredSearchItems.length === 0 ? (
+            <div className="search-empty-state">
+              <div className="search-empty-icon">
+                <Search size={40} />
+              </div>
+              <p>未找到匹配的设置项</p>
+              <button className="btn-link" onClick={() => setSearchQuery('')}>清除搜索</button>
+            </div>
+          ) : (
+            <div className="search-results-grid">
+              {filteredSearchItems.map(item => (
+                <button
+                  key={item.id}
+                  className="search-result-card"
+                  onClick={() => handleSearchResultClick(item.category, item.id)}
+                >
+                  <div className="search-result-card-main">
+                    <div className="search-result-card-icon">
+                      {SIDEBAR_ITEMS.find(s => s.id === item.category)?.icon}
+                    </div>
+                    <div className="search-result-card-body">
+                      <div className="search-result-card-title">{item.label}</div>
+                      <div className="search-result-card-path">
+                        {SIDEBAR_ITEMS.find(s => s.id === item.category)?.label}
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight size={18} className="search-result-chevron" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     switch (section) {
       case 'appearance':
         return (
@@ -226,10 +329,10 @@ export default function SettingsPage() {
                     <Moon size={14} /> 深色
                   </button>
                   <button
-                    className={`segmented-btn ${theme === 'industrial' ? 'active' : ''}`}
-                    onClick={() => setTheme('industrial')}
+                    className={`segmented-btn ${theme === 'arwes' ? 'active' : ''}`}
+                    onClick={() => setTheme('arwes')}
                   >
-                    🏭 工程
+                    Arwes
                   </button>
                 </div>
               </div>
@@ -260,7 +363,25 @@ export default function SettingsPage() {
           <>
             <h2>AI 模型配置</h2>
             <div className="setting-row-desc" style={{ marginBottom: 20 }}>
-              支持配置多个模型，可在主界面切换使用。所有请求从您浏览器直接发送，不经过我们的服务器。
+              支持配置多个模型，可在主界面切换使用。
+            </div>
+
+            <div className="setting-group">
+              <div className="setting-group-title">网络与跨域优化 (CORS)</div>
+              <div className="setting-row-desc" style={{ marginBottom: 12 }}>
+                如果您在浏览器中直接调用 API 遇到跨域错误（CORS），可以配置一个转发代理。留空则直接请求。
+              </div>
+              <input
+                type="text"
+                className="settings-input"
+                placeholder="例如 https://cors-anywhere.herokuapp.com/"
+                style={{ width: '100%', maxWidth: 'none' }}
+                value={corsProxy}
+                onChange={e => setCorsProxy(e.target.value)}
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                注意：使用公共代理可能会导致您的 API Key 泄露，建议部署私有代理。
+              </p>
             </div>
 
             <div className="setting-group">
@@ -584,6 +705,38 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            <div className="setting-group">
+              <div className="setting-group-title">开发者工具</div>
+              <div className="setting-row">
+                <div>
+                   <div className="setting-row-label">启用调试窗口</div>
+                   <div className="setting-row-desc">在画板区域显示调试窗口按钮 (Bug 图标)</div>
+                </div>
+                <label className="ios-toggle">
+                  <input
+                    type="checkbox"
+                    checked={enableDebugPanel}
+                    onChange={e => setEnableDebugPanel(e.target.checked)}
+                  />
+                  <span className="ios-toggle-track"></span>
+                </label>
+              </div>
+              <div className="setting-row">
+                <div>
+                   <div className="setting-row-label">启用控制台</div>
+                   <div className="setting-row-desc">在画板区域显示控制台按钮 (Terminal 图标)</div>
+                </div>
+                <label className="ios-toggle">
+                  <input
+                    type="checkbox"
+                    checked={enableConsole}
+                    onChange={e => setEnableConsole(e.target.checked)}
+                  />
+                  <span className="ios-toggle-track"></span>
+                </label>
+              </div>
+            </div>
+
           </>
         );
 
@@ -598,19 +751,19 @@ export default function SettingsPage() {
               </div>
               <div className="about-info-row">
                 <span className="about-info-label">数据存储位置</span>
-                <span className="about-info-value">本地</span>
+                <span className="about-info-value">本地浏览器缓存</span>
               </div>
               <div className="about-info-row">
                 <span className="about-info-label">渲染引擎</span>
-                <span className="about-info-value">GeoGebra 6.0</span>
+                <span className="about-info-value">GeoGebra JS</span>
               </div>
               <div className="about-info-row">
                 <span className="about-info-label">AI 协议标准</span>
-                <span className="about-info-value">仅支持主流API标准，可手动适配</span>
+                <span className="about-info-value">支持主流API标准，可手动适配</span>
               </div>
             </div>
             <div className="setting-row-desc" style={{ marginTop: 20 }}>
-              MathAll 由 xhc861 开发，项目属于 SiiWay 团队。并遵循Apache 2.0 协议。
+              MathAll 由xhc861 开发设计，项目版权属于 SiiWay 团队。开源遵循Apache 2.0 协议。
             </div>
           </>
         );

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Settings, Moon, Sun, Download, Upload, ImagePlus, RefreshCw, X, ChevronDown, ChevronUp, Bot, Check, Maximize, Minimize, Copy, Bug, Edit3 } from 'lucide-react';
+import { Settings, Moon, Sun, Download, Upload, ImagePlus, RefreshCw, X, ChevronDown, ChevronUp, Bot, Check, Maximize, Minimize, Copy, Bug, Edit3, Terminal as TerminalIcon, Play, Pause, Sliders } from 'lucide-react';
 import GeoGebraApplet, { type GeoGebraAPI } from './components/GeoGebraApplet';
 import AlgebraHtmlRenderer from './components/AlgebraHtmlRenderer';
 import Toast from './components/Toast';
 import ImageViewer from './components/ImageViewer';
 import DebugPanel from './components/DebugPanel';
+import ConsolePanel from './components/ConsolePanel';
 import AlgebraCalculator from './components/AlgebraCalculator';
 import MinimumCalculator from './components/MinimumCalculator';
 import { fetchAIAnalysisStream } from './services/aiStreamService';
@@ -15,6 +16,16 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import './index.css';
+
+export interface GgbParam {
+  name: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  isSlider: boolean;
+  isAnimating: boolean;
+}
 
 function App() {
   const navigate = useNavigate();
@@ -56,8 +67,35 @@ function App() {
     return saved === 'true'; // Default to collapsed if not 'true'
   });
   const [isDebugPanelOpen, setIsDebugPanelOpen] = useState(false);
+  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const [isAlgebraCalculatorOpen, setIsAlgebraCalculatorOpen] = useState(false);
   const [isMinimumCalculatorOpen, setIsMinimumCalculatorOpen] = useState(false);
+  const [dynamicParams, setDynamicParams] = useState<GgbParam[]>([]);
+  const [isDynamicParamsExpanded, setIsDynamicParamsExpanded] = useState(true);
+  const [editingParamName, setEditingParamName] = useState<string | null>(null);
+
+  const handleForceResetGGB = useCallback(() => {
+    // Clear GGB and UI related localStorage
+    const keysToRemove = [
+      'mathall-ggb-state-classic',
+      'mathall-ggb-state-3d',
+      'mathall-ggb-state-geometry',
+      'mathall-ggb-bgcolor',
+      'mathall-ggb-language',
+      'mathall-ggb-app-name',
+      'mathall-renderer-mode',
+      'mathall-problem-text',
+      'mathall-ai-code',
+      'mathall-images'
+    ];
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+
+    setToast({ message: 'GeoGebra 环境与设置已强制重置，正在重新加载...', type: 'success' });
+
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
+  }, []);
 
   // AI Models
   const [aiModels, setAiModels] = useState<Array<{id: string; name: string}>>([]);
@@ -92,6 +130,12 @@ function App() {
   const [enableGgbCodeEdit, setEnableGgbCodeEdit] = useState(() =>
     localStorage.getItem('mathall-enable-ggb-code-edit') === 'true'
   );
+  const [enableDebugPanel, setEnableDebugPanel] = useState(() =>
+    localStorage.getItem('mathall-enable-debug-panel') === 'true'
+  );
+  const [enableConsole, setEnableConsole] = useState(() =>
+    localStorage.getItem('mathall-enable-console') === 'true'
+  );
   const [editableGgbCode, setEditableGgbCode] = useState('');
   const [isGgbCodeEditModalOpen, setIsGgbCodeEditModalOpen] = useState(false);
 
@@ -99,6 +143,8 @@ function App() {
     const loadSettings = () => {
       setEnableCanvasFullscreen(localStorage.getItem('mathall-enable-canvas-fullscreen') === 'true');
       setEnableGgbCodeEdit(localStorage.getItem('mathall-enable-ggb-code-edit') === 'true');
+      setEnableDebugPanel(localStorage.getItem('mathall-enable-debug-panel') === 'true');
+      setEnableConsole(localStorage.getItem('mathall-enable-console') === 'true');
 
       const savedTheme = localStorage.getItem('mathall-theme') as 'light' | 'dark';
       if (savedTheme) setTheme(savedTheme);
@@ -204,6 +250,147 @@ function App() {
   }, []);
 
   const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
+
+  const handleParamChange = useCallback((name: string, value: number) => {
+    const api = ggbApiRef.current;
+    if (!api) return;
+    try {
+      api.evalCommand(`${name} = ${value}`);
+      setDynamicParams(prev => prev.map(p => p.name === name ? { ...p, value } : p));
+    } catch (e) {
+      console.warn('Failed to set value for', name, e);
+    }
+  }, []);
+
+  const handleToggleAnimation = useCallback((name: string) => {
+    const api = ggbApiRef.current;
+    if (!api) return;
+    try {
+      setDynamicParams(prev => prev.map(p => {
+        if (p.name === name) {
+          const nextAnim = !p.isAnimating;
+          api.setAnimating(name, nextAnim);
+          if (nextAnim) {
+            api.startAnimation();
+          } else {
+            const otherAnimating = prev.some(o => o.name !== name && o.isAnimating);
+            if (!otherAnimating) {
+              api.stopAnimation();
+            }
+          }
+          return { ...p, isAnimating: nextAnim };
+        }
+        return p;
+      }));
+    } catch (e) {
+      console.warn('Failed to toggle animation for', name, e);
+    }
+  }, []);
+
+  const handleUpdateLimits = useCallback((name: string, newMin: number, newMax: number, newStep: number) => {
+    const api = ggbApiRef.current;
+    if (!api) return;
+    try {
+      api.evalCommand(`SetRange[${name}, ${newMin}, ${newMax}]`);
+      api.evalCommand(`SetIncrement[${name}, ${newStep}]`);
+      setDynamicParams(prev => prev.map(p => p.name === name ? { ...p, min: newMin, max: newMax, step: newStep } : p));
+      setToast({ message: `已更新参数 ${name} 的范围与步长`, type: 'success' });
+    } catch (e) {
+      console.warn('Failed to set range/increment for', name, e);
+    }
+  }, []);
+
+  // Poll GGB for dynamic parameters to keep the panel UI fully synchronized in real-time
+  useEffect(() => {
+    if (rendererMode === 'HTML_CANVAS') {
+      setDynamicParams([]);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const api = ggbApiRef.current;
+      if (!api) return;
+
+      try {
+        const numerics = api.getAllObjectNames('numeric');
+        const validNames = numerics.filter(name => {
+          if (name.startsWith('perimeter_') || name.startsWith('area_') || name.startsWith('extremum_')) return false;
+          const cmd = api.getCommandString(name, false) || '';
+          return cmd === '' || cmd.startsWith('Slider');
+        });
+
+        setDynamicParams(prev => {
+          // Check if names or count changed to warrant rebuild
+          let changed = prev.length !== validNames.length;
+          if (!changed) {
+            for (let i = 0; i < prev.length; i++) {
+              if (prev[i].name !== validNames[i]) {
+                changed = true;
+                break;
+              }
+            }
+          }
+
+          if (changed) {
+            return validNames.map(name => {
+              const cmd = api.getCommandString(name, false) || '';
+              const isSlider = cmd.startsWith('Slider');
+              const value = api.getValue(name);
+              let min = -5;
+              let max = 5;
+              let step = 0.1;
+
+              if (isSlider) {
+                const match = cmd.match(/Slider\[\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^,]+)/);
+                if (match) {
+                  min = parseFloat(match[1]);
+                  if (isNaN(min)) min = -5;
+                  max = parseFloat(match[2]);
+                  if (isNaN(max)) max = 5;
+                  step = parseFloat(match[3]);
+                  if (isNaN(step) || step <= 0) step = 0.1;
+                }
+              }
+
+              const prevParam = prev.find(p => p.name === name);
+              if (prevParam) {
+                return {
+                  ...prevParam,
+                  value: value
+                };
+              }
+
+              return {
+                name,
+                value,
+                min,
+                max,
+                step,
+                isSlider,
+                isAnimating: false
+              };
+            });
+          } else {
+            // Update values only
+            let valueChanged = false;
+            const nextParams = prev.map(p => {
+              const val = api.getValue(p.name);
+              if (val !== p.value) {
+                valueChanged = true;
+                return { ...p, value: val };
+              }
+              return p;
+            });
+            return valueChanged ? nextParams : prev;
+          }
+        });
+      } catch (e) {
+        console.warn('Error syncing GGB dynamic parameters:', e);
+      }
+    }, 500);
+
+    return () => clearInterval(timer);
+  }, [rendererMode]);
 
   // Helper function to detect MODE from code
   const detectModeFromCode = useCallback((code: string): 'classic' | '3d' | 'geometry' | null => {
@@ -502,6 +689,12 @@ function App() {
         ggbApi={ggbApiRef.current}
         isOpen={isMinimumCalculatorOpen}
         onClose={() => setIsMinimumCalculatorOpen(false)}
+      />
+      <ConsolePanel
+        isOpen={isConsoleOpen}
+        onClose={() => setIsConsoleOpen(false)}
+        onResetGGB={handleForceResetGGB}
+        ggbApi={ggbApiRef.current}
       />
       {viewerImage && (
         <ImageViewer
@@ -970,21 +1163,40 @@ function App() {
                    >
                      {ggbAppName === '3d' ? '2D' : '3D'}
                    </button>
-                   <button
-                     className="btn btn-outline"
-                     onClick={() => setIsDebugPanelOpen(!isDebugPanelOpen)}
-                     style={{
-                       padding: '8px',
-                       minWidth: 'auto',
-                       background: isDebugPanelOpen ? 'var(--primary-color)' : 'var(--panel-bg)',
-                       color: isDebugPanelOpen ? 'white' : 'inherit',
-                       backdropFilter: 'blur(8px)',
-                       boxShadow: 'var(--shadow-md)'
-                     }}
-                     title="调试窗口"
-                   >
-                     <Bug size={18} />
-                   </button>
+                   {enableConsole && (
+                     <button
+                       className="btn btn-outline"
+                       onClick={() => setIsConsoleOpen(!isConsoleOpen)}
+                       style={{
+                         padding: '8px',
+                         minWidth: 'auto',
+                         background: isConsoleOpen ? 'var(--primary-color)' : 'var(--panel-bg)',
+                         color: isConsoleOpen ? 'white' : 'inherit',
+                         backdropFilter: 'blur(8px)',
+                         boxShadow: 'var(--shadow-md)'
+                       }}
+                       title="控制台"
+                     >
+                       <TerminalIcon size={18} />
+                     </button>
+                   )}
+                   {enableDebugPanel && (
+                     <button
+                       className="btn btn-outline"
+                       onClick={() => setIsDebugPanelOpen(!isDebugPanelOpen)}
+                       style={{
+                         padding: '8px',
+                         minWidth: 'auto',
+                         background: isDebugPanelOpen ? 'var(--primary-color)' : 'var(--panel-bg)',
+                         color: isDebugPanelOpen ? 'white' : 'inherit',
+                         backdropFilter: 'blur(8px)',
+                         boxShadow: 'var(--shadow-md)'
+                       }}
+                       title="调试窗口"
+                     >
+                       <Bug size={18} />
+                     </button>
+                   )}
                    {enableCanvasFullscreen && (
                      <button
                        className="btn btn-outline"
@@ -1085,93 +1297,252 @@ function App() {
             <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsGgbCodeExpanded(!isGgbCodeExpanded)}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>GGB 代码</span>
-                {(() => {
-                  const ggbCode = extractGgbCode(aiCode);
-                  return (
-                    <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className="btn btn-outline"
-                        style={{ 
-                          padding: '6px 12px', 
-                          fontSize: '0.85rem', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '4px'
-                        }}
-                        onClick={() => {
-                          setEditableGgbCode(ggbCode || '');
-                          setIsGgbCodeEditModalOpen(true);
-                        }}
-                      >
-                        <Edit3 size={14} />
-                        <span>编辑</span>
-                      </button>
-                      <button
-                        className="btn btn-outline"
-                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                        onClick={() => {
-                          if (ggbApiRef.current) {
-                            executeGgbCode(ggbApiRef.current, ggbCode, true);
-                          } else {
-                            const detectedMode = detectModeFromCode(ggbCode);
-                            if (detectedMode && detectedMode !== ggbAppName) {
-                              setGgbAppName(detectedMode);
-                            }
-                            setPendingGgbCode(ggbCode);
-                          }
-                        }}
-                        disabled={!ggbCode}
-                      >
-                        <Upload size={14} style={{ transform: 'rotate(-90deg)' }} />
-                        <span>导入画板</span>
-                      </button>
-                      <button
-                        className="btn btn-outline"
-                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                        onClick={() => {
-                          navigator.clipboard.writeText(ggbCode);
-                          setToast({ message: '已复制到剪贴板', type: 'success' });
-                        }}
-                        disabled={!ggbCode}
-                      >
-                        <Copy size={14} />
-                        <span>复制</span>
-                      </button>
-                    </div>
-                  );
-                })()}
               </div>
               {isGgbCodeExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </h3>
             {isGgbCodeExpanded && (
-              <div className="panel-placeholder">
+              <div className="panel-placeholder" style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left', border: 'none', padding: 0 }}>
                 {aiCode && (() => {
                   const ggbCode = extractGgbCode(aiCode);
-                  return ggbCode ? (
-                    <pre style={{
-                      background: 'var(--bg-color)',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      fontSize: '0.85rem',
-                      lineHeight: '1.5',
-                      overflowX: 'auto',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      margin: 0,
-                      border: '1px solid var(--border-color)',
-                      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", "Monaco", monospace',
-                      fontWeight: 500,
-                      letterSpacing: '0.02em'
-                    }}>
-                      <code>{ggbCode}</code>
-                    </pre>
-                  ) : (
-                    <div style={{ color: 'var(--text-secondary)' }}>等待生成 GGB 代码...</div>
+                  return (
+                    <>
+                      {ggbCode && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%' }}>
+                          {enableGgbCodeEdit && (
+                            <button
+                              className="btn btn-outline"
+                              style={{ 
+                                flex: '1 1 auto',
+                                padding: '6px 12px', 
+                                fontSize: '0.85rem', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center',
+                                gap: '4px',
+                                minWidth: '70px'
+                              }}
+                              onClick={() => {
+                                setEditableGgbCode(ggbCode || '');
+                                setIsGgbCodeEditModalOpen(true);
+                              }}
+                            >
+                              <Edit3 size={14} />
+                              <span>编辑</span>
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-outline"
+                            style={{ 
+                              flex: '1 1 auto',
+                              padding: '6px 12px', 
+                              fontSize: '0.85rem', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              gap: '4px',
+                              minWidth: '90px'
+                            }}
+                            onClick={() => {
+                              if (ggbApiRef.current) {
+                                executeGgbCode(ggbApiRef.current, ggbCode, true);
+                              } else {
+                                const detectedMode = detectModeFromCode(ggbCode);
+                                if (detectedMode && detectedMode !== ggbAppName) {
+                                  setGgbAppName(detectedMode);
+                                }
+                                setPendingGgbCode(ggbCode);
+                              }
+                            }}
+                            disabled={!ggbCode}
+                          >
+                            <Upload size={14} style={{ transform: 'rotate(-90deg)' }} />
+                            <span>导入画板</span>
+                          </button>
+                          <button
+                            className="btn btn-outline"
+                            style={{ 
+                              flex: '1 1 auto',
+                              padding: '6px 12px', 
+                              fontSize: '0.85rem', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              gap: '4px',
+                              minWidth: '70px'
+                            }}
+                            onClick={() => {
+                              navigator.clipboard.writeText(ggbCode);
+                              setToast({ message: '已复制到剪贴板', type: 'success' });
+                            }}
+                            disabled={!ggbCode}
+                          >
+                            <Copy size={14} />
+                            <span>复制</span>
+                          </button>
+                        </div>
+                      )}
+                      {ggbCode ? (
+                        <pre style={{
+                          background: 'var(--bg-color)',
+                          padding: '12px',
+                          borderRadius: '8px',
+                          fontSize: '0.85rem',
+                          lineHeight: '1.5',
+                          overflowX: 'auto',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          margin: 0,
+                          border: '1px solid var(--border-color)',
+                          fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", "Monaco", monospace',
+                          fontWeight: 500,
+                          letterSpacing: '0.02em',
+                          width: '100%'
+                        }}>
+                          <code>{ggbCode}</code>
+                        </pre>
+                      ) : (
+                        <div className="panel-placeholder" style={{ width: '100%' }}>
+                          <div style={{ color: 'var(--text-secondary)' }}>等待生成 GGB 代码...</div>
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
               </div>
             )}
           </div>
+
+          {rendererMode !== 'HTML_CANVAS' && (
+            <div className="panel-section">
+              <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsDynamicParamsExpanded(!isDynamicParamsExpanded)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sliders size={18} style={{ color: 'var(--primary-color)' }} />
+                  <span>动态解析与参数</span>
+                  {dynamicParams.length > 0 && (
+                    <span className="badge-counter" style={{ position: 'relative', top: 0, right: 0, border: 'none' }}>
+                      {dynamicParams.length}
+                    </span>
+                  )}
+                </div>
+                {isDynamicParamsExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </h3>
+              
+              {isDynamicParamsExpanded && (
+                <div className="panel-placeholder" style={{ textAlign: 'left', padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px', border: '1px solid var(--border-color)' }}>
+                  {dynamicParams.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '10px 0' }}>
+                      未检测到可调节的动态参数或滑动条
+                    </div>
+                  ) : (
+                    dynamicParams.map(param => (
+                      <div key={param.name} style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--bg-color)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                            {param.name} = {param.value.toFixed(2)}
+                          </span>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button
+                              className="btn btn-outline"
+                              style={{ padding: '4px', minWidth: 'auto', borderRadius: '4px', height: '24px', width: '24px' }}
+                              onClick={() => handleToggleAnimation(param.name)}
+                              title={param.isAnimating ? "暂停动画" : "开始动画"}
+                            >
+                              {param.isAnimating ? <Pause size={14} style={{ color: 'var(--primary-color)' }} /> : <Play size={14} />}
+                            </button>
+                            <button
+                              className="btn btn-outline"
+                              style={{ padding: '4px', minWidth: 'auto', borderRadius: '4px', height: '24px', width: '24px' }}
+                              onClick={() => setEditingParamName(editingParamName === param.name ? null : param.name)}
+                              title="参数设置"
+                            >
+                              <Settings size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', width: '24px', textAlign: 'right' }}>{param.min}</span>
+                          <input
+                            type="range"
+                            min={param.min}
+                            max={param.max}
+                            step={param.step}
+                            value={param.value}
+                            onChange={(e) => handleParamChange(param.name, parseFloat(e.target.value))}
+                            className="dynamic-slider"
+                            style={{ flex: 1, cursor: 'pointer' }}
+                          />
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', width: '24px' }}>{param.max}</span>
+                        </div>
+
+                        {editingParamName === param.name && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginTop: '6px', paddingTop: '6px', borderTop: '1px solid var(--border-color)' }} onClick={(e) => e.stopPropagation()}>
+                            <div>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>最小值</label>
+                              <input
+                                type="number"
+                                className="input-field"
+                                style={{ padding: '4px 6px', fontSize: '0.8rem', height: '28px' }}
+                                defaultValue={param.min}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  if (!isNaN(val)) handleUpdateLimits(param.name, val, param.max, param.step);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseFloat((e.target as HTMLInputElement).value);
+                                    if (!isNaN(val)) handleUpdateLimits(param.name, val, param.max, param.step);
+                                  }
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>最大值</label>
+                              <input
+                                type="number"
+                                className="input-field"
+                                style={{ padding: '4px 6px', fontSize: '0.8rem', height: '28px' }}
+                                defaultValue={param.max}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  if (!isNaN(val)) handleUpdateLimits(param.name, param.min, val, param.step);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseFloat((e.target as HTMLInputElement).value);
+                                    if (!isNaN(val)) handleUpdateLimits(param.name, param.min, val, param.step);
+                                  }
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>步长</label>
+                              <input
+                                type="number"
+                                className="input-field"
+                                style={{ padding: '4px 6px', fontSize: '0.8rem', height: '28px' }}
+                                defaultValue={param.step}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  if (!isNaN(val) && val > 0) handleUpdateLimits(param.name, param.min, param.max, val);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseFloat((e.target as HTMLInputElement).value);
+                                    if (!isNaN(val) && val > 0) handleUpdateLimits(param.name, param.min, param.max, val);
+                                  }
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="panel-section" style={{ flex: isAiCodeExpanded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
             <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsAiCodeExpanded(!isAiCodeExpanded)}>

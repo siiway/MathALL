@@ -13,6 +13,7 @@ export async function* fetchAIAnalysisStream(
   const apiKey = localStorage.getItem('mathall-api-key');
   const modelName = localStorage.getItem('mathall-model-name') || 'gpt-3.5-turbo';
   const apiProvider = localStorage.getItem('mathall-api-provider') || 'openai';
+  const corsProxy = localStorage.getItem('mathall-cors-proxy') || '';
   const systemPrompt = localStorage.getItem('mathall-system-prompt') || 'You are MathAll, an advanced mathematical AI assistant.\nCRITICAL INSTRUCTION: Your response MUST STRICTLY start with a 4-character tag enclosed in 【】, indicating the math domain. For example: 【几何综合】, 【代数计算】, 【函数极值】. THIS MUST BE THE VERY FIRST THING YOU OUTPUT.\nAfter the tag, provide step-by-step mathematical logic and analysis in Markdown, wrapping formulas in $ for inline and $$ for blocks. Provide GeoGebra commands if geometry is involved.';
 
   if (!baseUrl || !apiKey) {
@@ -49,8 +50,15 @@ export async function* fetchAIAnalysisStream(
 
   // Build the payload & endpoint based on the provider
   if (apiProvider === 'openai' || apiProvider === 'ollama') {
-    endpoint = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-    endpoint += '/chat/completions';
+    let base = baseUrl.trim();
+    if (!base.startsWith('http')) base = 'https://' + base;
+    endpoint = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+
+    // Auto-append chat completions if not present
+    if (!endpoint.endsWith('/chat/completions')) {
+      endpoint += '/chat/completions';
+    }
+
     requestHeaders['Authorization'] = `Bearer ${apiKey}`;
     requestBody = {
       model: modelName,
@@ -59,7 +67,8 @@ export async function* fetchAIAnalysisStream(
       temperature: 0.2
     };
   } else if (apiProvider === 'gemini') {
-    let base = baseUrl || 'https://generativelanguage.googleapis.com';
+    let base = baseUrl.trim() || 'https://generativelanguage.googleapis.com';
+    if (!base.startsWith('http')) base = 'https://' + base;
     base = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
     
     // Handle cases where user already appended /v1beta or /v1 to the base URL
@@ -95,7 +104,8 @@ export async function* fetchAIAnalysisStream(
       generationConfig: { temperature: 0.2 }
     };
   } else if (apiProvider === 'anthropic') {
-    let base = baseUrl || 'https://api.anthropic.com';
+    let base = baseUrl.trim() || 'https://api.anthropic.com';
+    if (!base.startsWith('http')) base = 'https://' + base;
     base = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
     endpoint = `${base}/v1/messages`;
     requestHeaders['x-api-key'] = apiKey;
@@ -135,90 +145,103 @@ export async function* fetchAIAnalysisStream(
     };
   }
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: requestHeaders,
-    body: JSON.stringify(requestBody)
-  });
-
-  if (!response.ok) {
-     const text = await response.text();
-     throw new Error(`API 请求失败 (${response.status}): ${text}`);
+  // Apply CORS Proxy if configured
+  if (corsProxy) {
+    const proxy = corsProxy.endsWith('/') ? corsProxy : corsProxy + '/';
+    endpoint = proxy + endpoint;
   }
 
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder();
-  let accumulatedTag = "";
-  let tagFinished = false;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify(requestBody)
+    });
 
-  if (reader) {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n').filter(line => line.trim() !== '');
-      
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const dataStr = line.replace(/^data: /, '').trim();
-        if (dataStr === '[DONE]') continue;
+    if (!response.ok) {
+       const text = await response.text();
+       throw new Error(`API 请求失败 (${response.status}): ${text}`);
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let accumulatedTag = "";
+    let tagFinished = false;
+
+    if (reader) {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
         
-        try {
-          const data = JSON.parse(dataStr);
-          let content = "";
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const dataStr = line.replace(/^data: /, '').trim();
+          if (dataStr === '[DONE]') continue;
           
-          if (apiProvider === 'openai' || apiProvider === 'ollama') {
-            content = data.choices?.[0]?.delta?.content || "";
-          } else if (apiProvider === 'gemini') {
-            content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          } else if (apiProvider === 'anthropic') {
-            if (data.type === 'content_block_delta') {
-              content = data.delta?.text || "";
+          try {
+            const data = JSON.parse(dataStr);
+            let content = "";
+
+            if (apiProvider === 'openai' || apiProvider === 'ollama') {
+              content = data.choices?.[0]?.delta?.content || "";
+            } else if (apiProvider === 'gemini') {
+              content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            } else if (apiProvider === 'anthropic') {
+              if (data.type === 'content_block_delta') {
+                content = data.delta?.text || "";
+              }
+            } else if (apiProvider === 'cloudflare') {
+              content = data.response || "";
             }
-          } else if (apiProvider === 'cloudflare') {
-            content = data.response || "";
-          }
 
-          if (!content) continue;
-          
-          if (!tagFinished) {
-            accumulatedTag += content;
-            const match = accumulatedTag.match(/【(.*?)】/);
-            if (match) {
-                 tagFinished = true;
-                 const finalTag = match[1];
-                 const isPureAlgebra = finalTag.includes("代数") || finalTag.includes("计算") || finalTag.includes("方程") || finalTag.includes("答疑") || finalTag.includes("解析");
+            if (!content) continue;
 
-                 // 提取标签之后的所有内容
-                 const tagEndIndex = accumulatedTag.indexOf('】') + 1;
-                 const contentAfterTag = accumulatedTag.substring(tagEndIndex);
+            if (!tagFinished) {
+              accumulatedTag += content;
+              const match = accumulatedTag.match(/【(.*?)】/);
+              if (match) {
+                   tagFinished = true;
+                   const finalTag = match[1];
+                   const isPureAlgebra = finalTag.includes("代数") || finalTag.includes("计算") || finalTag.includes("方程") || finalTag.includes("答疑") || finalTag.includes("解析");
 
-                 yield {
-                    tag: finalTag,
-                    renderer: isPureAlgebra ? 'HTML_CANVAS' : 'GEOGEBRA',
-                    contentChunk: contentAfterTag,
-                    done: false
-                 };
-            } else if (accumulatedTag.length > 50 && !accumulatedTag.includes("【")) {
-                 tagFinished = true;
-                 yield { 
-                   tag: "通用分析", 
-                   renderer: 'GEOGEBRA',
-                   contentChunk: accumulatedTag,
-                   done: false 
-                 };
+                   // 提取标签之后的所有内容
+                   const tagEndIndex = accumulatedTag.indexOf('】') + 1;
+                   const contentAfterTag = accumulatedTag.substring(tagEndIndex);
+
+                   yield {
+                      tag: finalTag,
+                      renderer: isPureAlgebra ? 'HTML_CANVAS' : 'GEOGEBRA',
+                      contentChunk: contentAfterTag,
+                      done: false
+                   };
+              } else if (accumulatedTag.length > 50 && !accumulatedTag.includes("【")) {
+                   tagFinished = true;
+                   yield {
+                     tag: "通用分析",
+                     renderer: 'GEOGEBRA',
+                     contentChunk: accumulatedTag,
+                     done: false
+                   };
+              } else {
+                   yield { tag: "解析中...", done: false };
+              }
             } else {
-                 yield { tag: "解析中...", done: false };
+               // 标签完成，进入纯文本流式输出
+               yield { contentChunk: content, done: false };
             }
-          } else {
-             // 标签完成，进入纯文本流式输出
-             yield { contentChunk: content, done: false };
+          } catch (e) {
+            // 忽略不完整的 JSON chunk 错误
           }
-        } catch (e) {
-          // 忽略不完整的 JSON chunk 错误
         }
       }
     }
+  } catch (error: any) {
+    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+      throw new Error('网络请求失败。这通常是由于 CORS 跨域限制引起的。请尝试在设置中配置跨域代理，或检查 API 地址是否正确。');
+    }
+    throw error;
   }
   
   yield { done: true };

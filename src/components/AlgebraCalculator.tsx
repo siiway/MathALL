@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Calculator, TrendingUp, Ruler, X, Copy, Check } from 'lucide-react';
 import type { GeoGebraAPI } from './GeoGebraApplet';
-import { formatSquareRoot, simplifySquareRoot, decimalToExactRoot } from '../utils/distanceCalculator';
+import { decimalToExactRoot } from '../utils/distanceCalculator';
 
 interface AlgebraCalculatorProps {
   ggbApi: GeoGebraAPI | null;

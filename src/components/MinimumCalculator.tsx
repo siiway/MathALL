@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Minimize2, X, Play, TrendingDown } from 'lucide-react';
 import type { GeoGebraAPI } from './GeoGebraApplet';
-import { formatSquareRoot, simplifySquareRoot, decimalToExactRoot } from '../utils/distanceCalculator';
+import { decimalToExactRoot } from '../utils/distanceCalculator';
 
 interface MinimumCalculatorProps {
   ggbApi: GeoGebraAPI | null;
