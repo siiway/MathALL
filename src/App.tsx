@@ -74,6 +74,28 @@ function App() {
   const [isDynamicParamsExpanded, setIsDynamicParamsExpanded] = useState(true);
   const [editingParamName, setEditingParamName] = useState<string | null>(null);
 
+  const [_logoClickCount, setLogoClickCount] = useState(0);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const logoClickTimerRef = useRef<number | null>(null);
+
+  const handleLogoClick = useCallback(() => {
+    setLogoClickCount(prev => {
+      const nextCount = prev + 1;
+      if (nextCount >= 7) {
+        setIsResetModalOpen(true);
+        return 0;
+      }
+      return nextCount;
+    });
+
+    if (logoClickTimerRef.current !== null) {
+      clearTimeout(logoClickTimerRef.current);
+    }
+    logoClickTimerRef.current = window.setTimeout(() => {
+      setLogoClickCount(0);
+    }, 1000);
+  }, []);
+
   const handleForceResetGGB = useCallback(() => {
     // Clear GGB and UI related localStorage
     const keysToRemove = [
@@ -255,8 +277,25 @@ function App() {
     const api = ggbApiRef.current;
     if (!api) return;
     try {
-      api.evalCommand(`${name} = ${value}`);
-      setDynamicParams(prev => prev.map(p => p.name === name ? { ...p, value } : p));
+      api.setValue(name, value);
+      setDynamicParams(prev => prev.map(p => {
+        if (p.name === name) {
+          if (p.isAnimating) {
+            try {
+              api.setAnimating(name, false);
+              const otherAnimating = prev.some(o => o.name !== name && o.isAnimating);
+              if (!otherAnimating) {
+                api.stopAnimation();
+              }
+            } catch (err) {
+              console.warn('Failed to stop animation on manual drag:', err);
+            }
+            return { ...p, value, isAnimating: false };
+          }
+          return { ...p, value };
+        }
+        return p;
+      }));
     } catch (e) {
       console.warn('Failed to set value for', name, e);
     }
@@ -319,6 +358,8 @@ function App() {
           return cmd === '' || cmd.startsWith('Slider');
         });
 
+        const isAnimRunning = api.isAnimationRunning ? api.isAnimationRunning() : false;
+
         setDynamicParams(prev => {
           // Check if names or count changed to warrant rebuild
           let changed = prev.length !== validNames.length;
@@ -356,7 +397,8 @@ function App() {
               if (prevParam) {
                 return {
                   ...prevParam,
-                  value: value
+                  value: value,
+                  isAnimating: isAnimRunning ? prevParam.isAnimating : false
                 };
               }
 
@@ -371,13 +413,14 @@ function App() {
               };
             });
           } else {
-            // Update values only
+            // Update values and animation states
             let valueChanged = false;
             const nextParams = prev.map(p => {
               const val = api.getValue(p.name);
-              if (val !== p.value) {
+              const expectedAnim = isAnimRunning ? p.isAnimating : false;
+              if (val !== p.value || expectedAnim !== p.isAnimating) {
                 valueChanged = true;
-                return { ...p, value: val };
+                return { ...p, value: val, isAnimating: expectedAnim };
               }
               return p;
             });
@@ -811,6 +854,47 @@ function App() {
           </div>
         </div>
       )}
+      {isResetModalOpen && (
+        <div className="image-modal-overlay" onClick={() => setIsResetModalOpen(false)}>
+          <div className="image-modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="image-modal-header">
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                危险操作
+              </h3>
+              <button className="btn-outline" style={{ border: 'none', padding: 4 }} onClick={() => setIsResetModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="image-modal-body" style={{ padding: '20px 0' }}>
+              <p style={{ margin: 0, lineHeight: 1.6, fontSize: '0.95rem' }}>
+                真的要重置全局配置数据吗？此操作将清除所有设置和本地缓存数据且无法恢复。
+              </p>
+            </div>
+            <div className="image-modal-footer" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+              <button 
+                className="btn btn-outline" 
+                onClick={() => setIsResetModalOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                className="btn"
+                style={{ background: '#ef4444', color: 'white', border: 'none' }}
+                onClick={() => {
+                  setIsResetModalOpen(false);
+                  localStorage.clear();
+                  setToast({ message: '所有配置已初始化，正在重新加载...', type: 'success' });
+                  setTimeout(() => {
+                    window.location.reload();
+                  }, 1000);
+                }}
+              >
+                确认重置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="app-container">
         {toast && (
           <Toast
@@ -821,8 +905,9 @@ function App() {
         )}
         <header className="glass-panel app-header">
         <div className="header-left">
-          <div className="logo">
-            MathAll
+          <div className="logo-container" onClick={() => { navigate('/'); handleLogoClick(); }}>
+            <span className="logo-text">MathALL</span>
+            <span className="logo-badge">2.0.0</span>
           </div>
         </div>
 

@@ -716,3 +716,52 @@ body {
   background: var(--primary-hover);
 }
 
+/* Premium MathALL 2.0 logo styling and animations */
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.logo-container:hover {
+  transform: scale(1.05);
+}
+
+.logo-text {
+  color: var(--text-primary);
+  font-weight: 900;
+  font-size: 1.55rem;
+  letter-spacing: -0.04em;
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  transition: color 0.3s ease;
+  user-select: none;
+}
+
+:root[data-theme='dark'] .logo-text {
+  color: var(--text-primary);
+}
+
+:root[data-theme='arwes'] .logo-text {
+  color: var(--primary-color);
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.8);
+}
+
+.logo-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  color: var(--bg-color) !important;
+  background: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
+  letter-spacing: 0.05em;
+  position: relative;
+  user-select: none;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

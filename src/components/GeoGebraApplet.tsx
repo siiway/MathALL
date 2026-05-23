@@ -20,6 +20,7 @@ export interface GeoGebraAPI {
   setCoordSystem: (xmin: number, xmax: number, ymin: number, ymax: number) => void;
   getValue: (name: string) => number;
   getValueString: (name: string, useTemplate?: boolean) => string;
+  setValue: (name: string, value: number) => void;
   setVisible: (name: string, visible: boolean) => void;
   setColor: (name: string, r: number, g: number, b: number) => void;
   setLineThickness: (name: string, thickness: number) => void;
@@ -38,6 +39,7 @@ export interface GeoGebraAPI {
   registerAddListener: (callback: string) => void;
   setAnimating: (name: string, animating: boolean) => void;
   setAnimationSpeed: (name: string, speed: number) => void;
+  isAnimationRunning: () => boolean;
   startAnimation: () => void;
   stopAnimation: () => void;
   getXML: () => string;

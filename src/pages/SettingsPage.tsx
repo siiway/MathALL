@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import {
   Sun, Moon, Palette, Bot, Info, FileText, Beaker,
-  Search, ChevronRight, ChevronLeft, Plus, Trash2, Check, ChevronDown
+  Search, ChevronRight, ChevronLeft, Plus, Trash2, Check, ChevronDown,
+  Shield, Link
 } from 'lucide-react';
 import './SettingsPage.css';
 
@@ -132,9 +133,13 @@ export default function SettingsPage() {
   const [enableConsole, setEnableConsole] = useState(() =>
     localStorage.getItem('mathall-enable-console') === 'true'
   );
+  const [proxyMode, setProxyMode] = useState<'builtin' | 'custom'>(() =>
+    (localStorage.getItem('mathall-proxy-mode') as 'builtin' | 'custom') || 'builtin'
+  );
   const [corsProxy, setCorsProxy] = useState(() =>
     localStorage.getItem('mathall-cors-proxy') || ''
   );
+
 
   // Auto-save on change
   useEffect(() => {
@@ -204,9 +209,15 @@ export default function SettingsPage() {
   }, [enableConsole]);
 
   useEffect(() => {
+    localStorage.setItem('mathall-proxy-mode', proxyMode);
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [proxyMode]);
+
+  useEffect(() => {
     localStorage.setItem('mathall-cors-proxy', corsProxy);
     window.dispatchEvent(new Event('mathall-settings-updated'));
   }, [corsProxy]);
+
 
   const filteredItems = SIDEBAR_ITEMS
     .filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -367,21 +378,68 @@ export default function SettingsPage() {
             </div>
 
             <div className="setting-group">
-              <div className="setting-group-title">网络与跨域优化 (CORS)</div>
-              <div className="setting-row-desc" style={{ marginBottom: 12 }}>
-                如果您在浏览器中直接调用 API 遇到跨域错误（CORS），可以配置一个转发代理。留空则直接请求。
+              <div className="setting-group-title">网络代理模式 (CORS)</div>
+              <div className="setting-row-desc" style={{ marginBottom: 12, lineHeight: 1.6 }}>
+                选择 API 请求的代理方式。开发环境推荐使用内置代理；生产部署或自定义需求时可切换为自定义代理。
               </div>
-              <input
-                type="text"
-                className="settings-input"
-                placeholder="例如 https://cors-anywhere.herokuapp.com/"
-                style={{ width: '100%', maxWidth: 'none' }}
-                value={corsProxy}
-                onChange={e => setCorsProxy(e.target.value)}
-              />
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                注意：使用公共代理可能会导致您的 API Key 泄露，建议部署私有代理。
-              </p>
+
+              {/* Toggle buttons */}
+              <div style={{ display: 'flex', gap: '0', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', marginBottom: '14px' }}>
+                <button
+                  onClick={() => setProxyMode('builtin')}
+                  style={{
+                    flex: 1, padding: '10px 16px', border: 'none', cursor: 'pointer',
+                    fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit',
+                    background: proxyMode === 'builtin' ? 'var(--primary-color)' : 'var(--bg-color)',
+                    color: proxyMode === 'builtin' ? 'white' : 'var(--text-secondary)',
+                    transition: 'all 0.2s ease',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  }}
+                >
+                  <Shield size={14} /> 内置代理
+                </button>
+                <button
+                  onClick={() => setProxyMode('custom')}
+                  style={{
+                    flex: 1, padding: '10px 16px', border: 'none', cursor: 'pointer',
+                    fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit',
+                    borderLeft: '1px solid var(--border-color)',
+                    background: proxyMode === 'custom' ? 'var(--primary-color)' : 'var(--bg-color)',
+                    color: proxyMode === 'custom' ? 'white' : 'var(--text-secondary)',
+                    transition: 'all 0.2s ease',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  }}
+                >
+                  <Link size={14} /> 自定义代理
+                </button>
+              </div>
+
+              {proxyMode === 'builtin' ? (
+                <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '8px', padding: '12px 14px' }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--primary-color)', fontWeight: 600, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Check size={14} /> Vite 内置代理已激活
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    所有 API 请求由 Vite 开发服务器在<strong style={{ color: 'var(--text-primary)' }}>服务端</strong>转发，
+                    完全绕过浏览器 CORS 限制。仅在 <code style={{ background: 'var(--bg-color)', padding: '1px 5px', borderRadius: '4px', fontSize: '0.78rem' }}>npm run dev</code> 时有效。
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    placeholder="例如 https://your-proxy.workers.dev/"
+                    style={{ width: '100%', maxWidth: 'none', marginBottom: '8px' }}
+                    value={corsProxy}
+                    onChange={e => setCorsProxy(e.target.value)}
+                  />
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    请填入您的反向代理地址。请求将以 <code style={{ background: 'var(--bg-color)', padding: '1px 5px', borderRadius: '4px', fontSize: '0.73rem' }}>代理地址 + API路径</code> 的方式转发。
+                    建议使用自建 Nginx 反代或 Cloudflare Worker，不推荐使用公共代理以防 API Key 泄露。
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="setting-group">
@@ -676,13 +734,19 @@ export default function SettingsPage() {
                    <div className="setting-row-label">启用画板全屏按钮</div>
                    <div className="setting-row-desc">在画板区域显示全屏按钮，点击可放大画板到全屏状态</div>
                 </div>
-                <label className="ios-toggle">
+                <label className="m3-toggle">
                   <input
                     type="checkbox"
                     checked={enableCanvasFullscreen}
                     onChange={e => setEnableCanvasFullscreen(e.target.checked)}
                   />
-                  <span className="ios-toggle-track"></span>
+                  <div className="m3-toggle-track">
+                    <div className="m3-toggle-thumb">
+                      <svg className="m3-toggle-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"/>
+                      </svg>
+                    </div>
+                  </div>
                 </label>
               </div>
             </div>
@@ -694,13 +758,19 @@ export default function SettingsPage() {
                    <div className="setting-row-label">允许编辑 GGB 代码</div>
                    <div className="setting-row-desc">启用后可在右侧面板直接编辑和应用 GeoGebra 代码</div>
                 </div>
-                <label className="ios-toggle">
+                <label className="m3-toggle">
                   <input
                     type="checkbox"
                     checked={enableGgbCodeEdit}
                     onChange={e => setEnableGgbCodeEdit(e.target.checked)}
                   />
-                  <span className="ios-toggle-track"></span>
+                  <div className="m3-toggle-track">
+                    <div className="m3-toggle-thumb">
+                      <svg className="m3-toggle-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"/>
+                      </svg>
+                    </div>
+                  </div>
                 </label>
               </div>
             </div>
@@ -712,13 +782,19 @@ export default function SettingsPage() {
                    <div className="setting-row-label">启用调试窗口</div>
                    <div className="setting-row-desc">在画板区域显示调试窗口按钮 (Bug 图标)</div>
                 </div>
-                <label className="ios-toggle">
+                <label className="m3-toggle">
                   <input
                     type="checkbox"
                     checked={enableDebugPanel}
                     onChange={e => setEnableDebugPanel(e.target.checked)}
                   />
-                  <span className="ios-toggle-track"></span>
+                  <div className="m3-toggle-track">
+                    <div className="m3-toggle-thumb">
+                      <svg className="m3-toggle-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"/>
+                      </svg>
+                    </div>
+                  </div>
                 </label>
               </div>
               <div className="setting-row">
@@ -726,13 +802,19 @@ export default function SettingsPage() {
                    <div className="setting-row-label">启用控制台</div>
                    <div className="setting-row-desc">在画板区域显示控制台按钮 (Terminal 图标)</div>
                 </div>
-                <label className="ios-toggle">
+                <label className="m3-toggle">
                   <input
                     type="checkbox"
                     checked={enableConsole}
                     onChange={e => setEnableConsole(e.target.checked)}
                   />
-                  <span className="ios-toggle-track"></span>
+                  <div className="m3-toggle-track">
+                    <div className="m3-toggle-thumb">
+                      <svg className="m3-toggle-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"/>
+                      </svg>
+                    </div>
+                  </div>
                 </label>
               </div>
             </div>

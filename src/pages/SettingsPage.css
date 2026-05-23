@@ -359,68 +359,128 @@
   flex-shrink: 0;
 }
 
-/* Toggle Switch (iOS-like) */
-.ios-toggle {
+/* Material 3 Toggle Switch */
+.m3-toggle {
   position: relative;
-  width: 44px;
-  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
   flex-shrink: 0;
 }
 
-.ios-toggle input {
+.m3-toggle input {
+  position: absolute;
   opacity: 0;
   width: 0;
   height: 0;
 }
 
-.ios-toggle-track {
-  position: absolute;
-  inset: 0;
+.m3-toggle-track {
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
   background: #e2e8f0;
-  border-radius: 26px;
-  cursor: pointer;
-  transition: background 0.25s ease;
+  border: 2px solid #94a3b8;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
+  position: relative;
 }
 
-:root[data-theme='dark'] .ios-toggle-track {
-  background: #334155;
+:root[data-theme='dark'] .m3-toggle-track {
+  background: #1e293b;
+  border-color: #475569;
 }
 
-:root[data-theme='arwes'] .ios-toggle-track {
-  background: rgba(0, 212, 255, 0.1);
-  border: 1px solid var(--primary-color);
+:root[data-theme='arwes'] .m3-toggle-track {
+  background: rgba(0, 212, 255, 0.08);
+  border-color: var(--primary-color);
   border-radius: 0;
 }
 
-.ios-toggle input:checked+.ios-toggle-track {
-  background: #34c759;
+/* Checked track */
+.m3-toggle input:checked + .m3-toggle-track {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
 }
 
-:root[data-theme='arwes'] .ios-toggle input:checked+.ios-toggle-track {
+:root[data-theme='arwes'] .m3-toggle input:checked + .m3-toggle-track {
   background: rgba(0, 212, 255, 0.3);
+  border-color: var(--primary-color);
 }
 
-.ios-toggle-track::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 22px;
-  height: 22px;
+/* Thumb */
+.m3-toggle-thumb {
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: transform 0.25s ease;
+  background: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
+  transform: translateX(2px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-:root[data-theme='arwes'] .ios-toggle-track::after {
+:root[data-theme='dark'] .m3-toggle-thumb {
+  background: #64748b;
+}
+
+:root[data-theme='arwes'] .m3-toggle-thumb {
   border-radius: 0;
+  background: var(--primary-color);
+  box-shadow: 0 0 6px var(--primary-color);
+}
+
+/* Checked thumb — grows and slides */
+.m3-toggle input:checked + .m3-toggle-track .m3-toggle-thumb {
+  width: 24px;
+  height: 24px;
+  background: #ffffff;
+  transform: translateX(20px);
+}
+
+:root[data-theme='arwes'] .m3-toggle input:checked + .m3-toggle-track .m3-toggle-thumb {
   background: var(--primary-color);
   box-shadow: 0 0 10px var(--primary-color);
 }
 
-.ios-toggle input:checked+.ios-toggle-track::after {
-  transform: translateX(18px);
+/* Active press feedback */
+.m3-toggle:active .m3-toggle-thumb {
+  transform: scale(1.1) translateX(2px);
+}
+
+.m3-toggle input:checked + .m3-toggle-track .m3-toggle:active .m3-toggle-thumb {
+  transform: scale(1.1) translateX(20px);
+}
+
+/* Checkmark icon in thumb */
+.m3-toggle-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+  color: var(--primary-color);
+  transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.m3-toggle input:checked + .m3-toggle-track .m3-toggle-icon {
+  opacity: 1;
+}
+
+:root[data-theme='arwes'] .m3-toggle input:checked + .m3-toggle-track .m3-toggle-icon {
+  color: var(--bg-color);
+}
+
+/* Focus-visible ring */
+.m3-toggle input:focus-visible + .m3-toggle-track {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 /* Color Palette */
