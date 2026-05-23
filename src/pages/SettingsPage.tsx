@@ -912,7 +912,7 @@ export default function SettingsPage() {
                       className="ios-list-item"
                       onClick={() => setMobileDetail(item.id)}
                     >
-                      <div className="ios-list-icon" style={{ background: item.iconBg }}>
+                      <div className="ios-list-icon" style={{ background: item.id === 'appearance' ? primaryColor : item.iconBg }}>
                         {item.icon}
                       </div>
                       <div className="ios-list-text">

@@ -1,5 +1,5 @@
 :root {
-  --bg-color: #f0fdf4;
+  --bg-color: color-mix(in srgb, var(--primary-color) 6%, #ffffff);
   --panel-bg: rgba(255, 255, 255, 0.85);
   --text-primary: #1e293b;
   --text-secondary: #64748b;
@@ -155,6 +155,12 @@ body {
   font-weight: 700;
 }
 
+.btn-primary {
+  background: var(--primary-color);
+  color: white;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2);
+}
+
 .btn-primary:hover {
   filter: brightness(1.1);
   transform: translateY(-1px);
@@ -256,6 +262,7 @@ body {
   flex: 1;
   gap: 12px;
   min-height: 0;
+  position: relative;
 }
 
 /* ---- Canvas Area ---- */
@@ -273,7 +280,7 @@ body {
   position: absolute;
   top: 12px;
   left: calc((100% - 372px) / 2);
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(0) scale(1) skewX(0deg);
   z-index: 10;
   display: flex;
   width: 85%;
@@ -281,6 +288,64 @@ body {
   gap: 8px;
   padding: 6px;
   align-items: center;
+  
+  /* Pure hardware-accelerated fluid CSS transition matching Apple's standard Genie minimize curves */
+  transition: transform 0.6s cubic-bezier(0.25, 1, 0.25, 1),
+              opacity 0.5s cubic-bezier(0.25, 1, 0.25, 1),
+              filter 0.5s ease;
+  transform-origin: center top;
+  opacity: 1;
+  filter: blur(0);
+}
+
+.input-bar.collapsed {
+  transform: translateX(-50%) translateY(72vh) scaleX(0.02) scaleY(0.05) skewX(-12deg);
+  opacity: 0;
+  filter: blur(4px);
+  pointer-events: none;
+  transform-origin: center bottom;
+}
+
+/* Collapsed trigger button floating at the bottom center of the canvas */
+.input-bar-collapsed-trigger {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px) scale(0.8);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 24px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px);
+  color: var(--primary-color);
+  font-weight: 600;
+  font-size: 0.9rem;
+  opacity: 0;
+  pointer-events: none;
+  
+  /* Smooth transition matching input bar collapse/expand pace */
+  transition: transform 0.6s cubic-bezier(0.25, 1, 0.25, 1),
+              opacity 0.5s cubic-bezier(0.25, 1, 0.25, 1),
+              box-shadow 0.25s ease;
+}
+
+/* Active trigger state when collapsed is active */
+.input-bar-collapsed-trigger.active {
+  transform: translateX(-50%) translateY(0) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Hover effects for trigger */
+.input-bar-collapsed-trigger:hover {
+  transform: translateX(-50%) translateY(-2px) scale(1.03);
+  box-shadow: var(--shadow-lg), 0 8px 24px rgba(16, 185, 129, 0.15);
 }
 
 .ggb-wrapper {

@@ -81,6 +81,22 @@ function App() {
   const dragCounterRef = useRef(0);
   const [activeMobileTab, setActiveMobileTab] = useState<'canvas' | 'analysis' | 'params'>('canvas');
   const [isMobileUploadOpen, setIsMobileUploadOpen] = useState(false);
+  const [isInputExpanded, setIsInputExpanded] = useState(true);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setProblemText(e.target.value);
+    const target = e.target;
+    target.style.height = 'auto';
+    target.style.height = `${Math.min(target.scrollHeight, 140)}px`;
+  };
+
+  useEffect(() => {
+    if (isInputExpanded && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 140)}px`;
+    }
+  }, [problemText, isInputExpanded]);
 
   const handleLogoClick = useCallback(() => {
     setLogoClickCount(prev => {
@@ -1217,178 +1233,218 @@ function App() {
           </div>
         )}
 
-        <div className="input-bar glass-panel">
-          <input 
-              type="file" 
-              multiple
-              ref={fileInputRef} 
-              accept="image/*" 
-              style={{ display: 'none' }} 
-              onChange={e => {
-                const files = Array.from(e.target.files || []);
-                if (files.length > 0) {
-                  let processed = 0;
-                  const newImages: string[] = [];
-                  files.forEach(file => {
-                    const reader = new FileReader();
-                    reader.onload = ev => {
-                      newImages.push(ev.target?.result as string);
-                      processed++;
-                      if (processed === files.length) {
-                         setImagesBase64(prev => {
-                           const combined = [...prev, ...newImages];
-                           return combined.slice(0, maxImages);
-                         });
-                         setIsImageModalOpen(true);
-                      }
-                    };
-                    reader.readAsDataURL(file);
-                  });
-                }
-                e.target.value = '';
-              }} 
-            />
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <button 
-                className="btn btn-outline" 
-                style={{ border: 'none', background: 'var(--bg-color)', padding: '8px 12px', flexShrink: 0, borderRadius: '8px' }} 
-                onClick={() => {
-                  if (window.innerWidth <= 768) {
-                    setIsMobileUploadOpen(true);
-                  } else {
-                    imagesBase64.length > 0 ? setIsImageModalOpen(true) : fileInputRef.current?.click();
+        <div 
+          className={`input-bar glass-panel ${!isInputExpanded ? 'collapsed' : ''}`}
+        >
+            <input 
+                type="file" 
+                multiple
+                ref={fileInputRef} 
+                accept="image/*" 
+                style={{ display: 'none' }} 
+                onChange={e => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0) {
+                    let processed = 0;
+                    const newImages: string[] = [];
+                    files.forEach(file => {
+                      const reader = new FileReader();
+                      reader.onload = ev => {
+                        newImages.push(ev.target?.result as string);
+                        processed++;
+                        if (processed === files.length) {
+                           setImagesBase64(prev => {
+                             const combined = [...prev, ...newImages];
+                             return combined.slice(0, maxImages);
+                           });
+                           setIsImageModalOpen(true);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    });
                   }
-                }}
-                onMouseEnter={() => setIsUploadBtnHovered(true)}
-                onMouseLeave={() => setIsUploadBtnHovered(false)}
-                title="上传图片 (或直接 Ctrl+V 粘贴)"
-              >
-                {imagesBase64.length > 0 ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ position: 'relative' }}>
-                      <img src={imagesBase64[0]} style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4 }} alt="uploaded" />
-                      {imagesBase64.length > 1 && (
-                        <div className="badge-counter" style={{ top: -6, right: -6 }}>+{imagesBase64.length - 1}</div>
-                      )}
+                  e.target.value = '';
+                }} 
+              />
+  
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <button 
+                  className="btn btn-outline" 
+                  style={{ border: 'none', background: 'var(--bg-color)', padding: '8px 12px', flexShrink: 0, borderRadius: '8px' }} 
+                  onClick={() => {
+                    if (window.innerWidth <= 768) {
+                      setIsMobileUploadOpen(true);
+                    } else {
+                      imagesBase64.length > 0 ? setIsImageModalOpen(true) : fileInputRef.current?.click();
+                    }
+                  }}
+                  onMouseEnter={() => setIsUploadBtnHovered(true)}
+                  onMouseLeave={() => setIsUploadBtnHovered(false)}
+                  title="上传图片 (或直接 Ctrl+V 粘贴)"
+                >
+                  {imagesBase64.length > 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ position: 'relative' }}>
+                        <img src={imagesBase64[0]} style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4 }} alt="uploaded" />
+                        {imagesBase64.length > 1 && (
+                          <div className="badge-counter" style={{ top: -6, right: -6 }}>+{imagesBase64.length - 1}</div>
+                        )}
+                      </div>
+                      <span className="btn-text" style={{ fontWeight: 500, fontSize: '0.9rem', color: isUploadBtnHovered ? 'var(--primary-color)' : 'inherit' }}>
+                        {isUploadBtnHovered ? '点击修改' : '已选图片'}
+                      </span>
                     </div>
-                    <span className="btn-text" style={{ fontWeight: 500, fontSize: '0.9rem', color: isUploadBtnHovered ? 'var(--primary-color)' : 'inherit' }}>
-                      {isUploadBtnHovered ? '点击修改' : '已选图片'}
-                    </span>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
-                    <ImagePlus size={18} />
-                    <span className="btn-text" style={{ fontWeight: 500, fontSize: '0.9rem' }}>添加图片</span>
-                  </div>
-                )}
-              </button>
-              {imagesBase64.length > 0 && (
-                <div 
-                  style={{ position: 'absolute', top: 4, right: 4, cursor: 'pointer', background: 'var(--panel-bg)', borderRadius: '50%', padding: '2px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-sm)', zIndex: 2 }} 
-                  onClick={(e) => { e.stopPropagation(); setImagesBase64([]); }}
-                  title="全部移除"
-                >
-                  <X size={10} strokeWidth={3} />
-                </div>
-              )}
-            </div>
-            
-            <input
-              type="text"
-              className="input-field"
-              placeholder="在此输入题目内容，支持 Ctrl+V 粘贴图片......"
-              style={{ border: 'none', background: 'transparent', flex: 1 }}
-              value={problemText}
-              onChange={e => setProblemText(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleStreamAI()}
-            />
-
-            {aiModels.length > 0 && (
-              <div className="model-selector-dropdown" style={{ position: 'relative' }}>
-                <button
-                  className="model-selector-btn"
-                  onClick={() => { setIsModelSelectorOpen(!isModelSelectorOpen); }}
-                  style={{ minWidth: '140px', justifyContent: 'space-between' }}
-                >
-                  <Bot size={16} style={{ flexShrink: 0, color: 'var(--primary-color)' }} />
-                  <span className="btn-text" style={{
-                    flex: 1,
-                    textAlign: 'left',
-                    marginLeft: '6px',
-                    marginRight: '6px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {aiModels.find(m => m.id === selectedModelId)?.name || '选择模型'}
-                  </span>
-                  <ChevronDown size={14} style={{ flexShrink: 0, opacity: 0.6 }} />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                      <ImagePlus size={18} />
+                      <span className="btn-text" style={{ fontWeight: 500, fontSize: '0.9rem' }}>添加图片</span>
+                    </div>
+                  )}
                 </button>
-
-                {isModelSelectorOpen && (
-                  <>
-                    <div
-                      style={{ position: 'fixed', inset: 0, zIndex: 998 }}
-                      onClick={() => setIsModelSelectorOpen(false)}
-                    />
-                    <div className="dropdown-menu" style={{ minWidth: '240px', right: 0, zIndex: 999, maxHeight: '320px', overflowY: 'auto' }}>
-                      {aiModels.map(model => (
-                        <button
-                          key={model.id}
-                          className="btn btn-outline"
-                          style={{
-                            display: 'flex',
-                            width: '100%',
-                            border: 'none',
-                            justifyContent: 'flex-start',
-                            alignItems: 'center',
-                            gap: '8px',
-                            background: model.id === selectedModelId ? 'var(--bg-secondary)' : 'transparent',
-                            fontWeight: model.id === selectedModelId ? 600 : 400
-                          }}
-                          onClick={() => {
-                            setSelectedModelId(model.id);
-                            localStorage.setItem('mathall-selected-model-id', model.id);
-                            // Update legacy keys
-                            const models = JSON.parse(localStorage.getItem('mathall-ai-models') || '[]');
-                            const selected = models.find((m: any) => m.id === model.id);
-                            if (selected) {
-                              localStorage.setItem('mathall-api-provider', selected.provider);
-                              localStorage.setItem('mathall-api-base-url', selected.baseUrl);
-                              localStorage.setItem('mathall-api-key', selected.apiKey);
-                              localStorage.setItem('mathall-model-name', selected.modelName);
-                            }
-                            setIsModelSelectorOpen(false);
-                          }}
-                        >
-                          {model.id === selectedModelId && (
-                            <Check size={16} style={{ color: 'var(--primary-color)', flexShrink: 0 }} />
-                          )}
-                          <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {model.name}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
+                {imagesBase64.length > 0 && (
+                  <div 
+                    style={{ position: 'absolute', top: 4, right: 4, cursor: 'pointer', background: 'var(--panel-bg)', borderRadius: '50%', padding: '2px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-sm)', zIndex: 2 }} 
+                    onClick={(e) => { e.stopPropagation(); setImagesBase64([]); }}
+                    title="全部移除"
+                  >
+                    <X size={10} strokeWidth={3} />
+                  </div>
                 )}
               </div>
-            )}
-
-            <button
-              className="btn btn-primary"
-              onClick={handleStreamAI}
-              disabled={isGenerating}
-              style={{ flexShrink: 0 }}
-            >
-              <RefreshCw size={18} className={isGenerating ? "animate-spin" : ""} />
-              <span className="btn-text">
-                {isGenerating ? "生成中..." : (hasGenerated && lastGeneratedModelId === selectedModelId ? "重新生成" : "分析与生成")}
-              </span>
-            </button>
-          </div>
-
-          <div className="canvas-area" style={{ position: 'relative' }}>
+              
+              <textarea
+                ref={textareaRef}
+                className="input-field"
+                placeholder="在此输入题目内容（按 Ctrl+Enter 快速分析，支持 Ctrl+V 粘贴图片）......"
+                style={{ 
+                  border: 'none', 
+                  background: 'transparent', 
+                  flex: 1,
+                  resize: 'none',
+                  height: '36px',
+                  minHeight: '36px',
+                  maxHeight: '140px',
+                  paddingTop: '8px',
+                  paddingBottom: '8px',
+                  lineHeight: '1.5',
+                  overflowY: 'auto',
+                  fontFamily: 'inherit'
+                }}
+                rows={1}
+                value={problemText}
+                onChange={handleTextareaChange}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    handleStreamAI();
+                  }
+                }}
+              />
+  
+              {aiModels.length > 0 && (
+                <div className="model-selector-dropdown" style={{ position: 'relative' }}>
+                  <button
+                    className="model-selector-btn"
+                    onClick={() => { setIsModelSelectorOpen(!isModelSelectorOpen); }}
+                    style={{ minWidth: '140px', justifyContent: 'space-between' }}
+                  >
+                    <Bot size={16} style={{ flexShrink: 0, color: 'var(--primary-color)' }} />
+                    <span className="btn-text" style={{
+                      flex: 1,
+                      textAlign: 'left',
+                      marginLeft: '6px',
+                      marginRight: '6px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {aiModels.find(m => m.id === selectedModelId)?.name || '选择模型'}
+                    </span>
+                    <ChevronDown size={14} style={{ flexShrink: 0, opacity: 0.6 }} />
+                  </button>
+  
+                  {isModelSelectorOpen && (
+                    <>
+                      <div
+                        style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                        onClick={() => setIsModelSelectorOpen(false)}
+                      />
+                      <div className="dropdown-menu" style={{ minWidth: '240px', right: 0, zIndex: 999, maxHeight: '320px', overflowY: 'auto' }}>
+                        {aiModels.map(model => (
+                          <button
+                            key={model.id}
+                            className="btn btn-outline"
+                            style={{
+                              display: 'flex',
+                              width: '100%',
+                              border: 'none',
+                              justifyContent: 'flex-start',
+                              alignItems: 'center',
+                              gap: '8px',
+                              background: model.id === selectedModelId ? 'var(--bg-secondary)' : 'transparent',
+                              fontWeight: model.id === selectedModelId ? 600 : 400
+                            }}
+                            onClick={() => {
+                              setSelectedModelId(model.id);
+                              localStorage.setItem('mathall-selected-model-id', model.id);
+                              // Update legacy keys
+                              const models = JSON.parse(localStorage.getItem('mathall-ai-models') || '[]');
+                              const selected = models.find((m: any) => m.id === model.id);
+                              if (selected) {
+                                localStorage.setItem('mathall-api-provider', selected.provider);
+                                localStorage.setItem('mathall-api-base-url', selected.baseUrl);
+                                localStorage.setItem('mathall-api-key', selected.apiKey);
+                                localStorage.setItem('mathall-model-name', selected.modelName);
+                              }
+                              setIsModelSelectorOpen(false);
+                            }}
+                          >
+                            {model.id === selectedModelId && (
+                              <Check size={16} style={{ color: 'var(--primary-color)', flexShrink: 0 }} />
+                            )}
+                            <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {model.name}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+  
+              <button
+                className="btn btn-primary"
+                onClick={handleStreamAI}
+                disabled={isGenerating}
+                style={{ flexShrink: 0 }}
+              >
+                <RefreshCw size={18} className={isGenerating ? "animate-spin" : ""} />
+                <span className="btn-text">
+                  {isGenerating ? "生成中..." : (hasGenerated && lastGeneratedModelId === selectedModelId ? "重新生成" : "分析与生成")}
+                </span>
+              </button>
+  
+              <button
+                className="btn btn-outline"
+                onClick={() => setIsInputExpanded(false)}
+                style={{ padding: '8px', minWidth: 'auto', flexShrink: 0, border: 'none', background: 'transparent' }}
+                title="收起输入框"
+              >
+                <X size={18} />
+              </button>
+            </div>
+  
+        <div className="canvas-area" style={{ position: 'relative' }}>
+          {/* Collapsed input bar floating at the bottom of the canvas */}
+          <button
+            className={`input-bar-collapsed-trigger glass-panel ${!isInputExpanded ? 'active' : ''}`}
+            onClick={() => setIsInputExpanded(true)}
+            title="展开题目输入栏"
+          >
+            <Bot size={18} style={{ color: 'var(--primary-color)' }} />
+            <span>展开题目输入栏</span>
+          </button>
             <div className="ggb-wrapper" style={{ position: 'relative' }}>
              {rendererMode !== 'HTML_CANVAS' && (
                <>

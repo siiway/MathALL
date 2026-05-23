@@ -34,3 +34,6 @@ pnpm-debug.log*
 
 # OS files
 Thumbs.db
+
+#Vital
+README.md
