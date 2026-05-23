@@ -41,15 +41,23 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
           // 处理线段 (segment)
           if (objType === 'segment') {
             try {
-              // 获取线段的LaTeX表示（可能包含根号）
-              const valueStr = ggbApi.getValueString(name, false);
               const decimalValue = ggbApi.getValue(name);
+              let exactValue = ggbApi.getValueString(name, false);
+              
+              // 尝试使用 CAS 获取绝对精确的代数形式
+              try {
+                if (ggbApi.evalCommandCAS) {
+                  const casResult = ggbApi.evalCommandCAS(`Length(${name})`);
+                  if (casResult && casResult !== '?' && casResult.trim() !== '') {
+                    exactValue = casResult;
+                  }
+                }
+              } catch (casErr) {
+                // Ignore CAS errors, fallback to previous method
+              }
 
-              // 尝试从valueString中提取根号形式
-              let exactValue = valueStr;
-
-              // 如果是小数，尝试转换为根号
-              if (!valueStr.includes('√') && !isNaN(decimalValue)) {
+              // 如果精确值仍然是小数，并且没有根号，尝试自己转换
+              if (!exactValue.includes('√') && !exactValue.includes('sqrt') && !isNaN(decimalValue)) {
                 const converted = decimalToExactRoot(decimalValue);
                 if (converted) exactValue = converted;
               }
@@ -67,104 +75,87 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
             }
           }
 
-          // 处理多边形 (polygon)
-          if (objType === 'polygon') {
+          // 处理多边形和圆锥曲线 (polygon / conic)
+          else if (objType === 'polygon' || objType === 'conic') {
             try {
-              // 周长
-              const perimeterCmd = `Perimeter(${name})`;
-              ggbApi.evalCommand(`perimeter_${name} = ${perimeterCmd}`);
-              const perimeterValue = ggbApi.getValue(`perimeter_${name}`);
-              const perimeterStr = ggbApi.getValueString(`perimeter_${name}`, false);
+              // 计算周长
+              let perimeterValue = NaN;
+              let perimeterStr = '';
+              try {
+                if (ggbApi.evalCommandCAS) {
+                  const casPerimeter = ggbApi.evalCommandCAS(`Perimeter(${name})`);
+                  if (casPerimeter && casPerimeter !== '?') {
+                    perimeterStr = casPerimeter;
+                    const numResult = ggbApi.evalCommandCAS(`Numeric(Perimeter(${name}))`);
+                    if (numResult && numResult !== '?') {
+                      perimeterValue = parseFloat(numResult);
+                    }
+                  }
+                }
+              } catch(e) {}
+              
+              // 回退逻辑：如果 CAS 失败或没有结果
+              if (!perimeterStr || isNaN(perimeterValue)) {
+                const tempId = `temp_perim_${Math.floor(Math.random()*100000)}`;
+                ggbApi.evalCommand(`${tempId} = Perimeter(${name})`);
+                if (ggbApi.exists(tempId)) {
+                  perimeterValue = ggbApi.getValue(tempId);
+                  if (!perimeterStr) perimeterStr = ggbApi.getValueString(tempId, false);
+                  ggbApi.deleteObject(tempId);
+                }
+              }
 
               if (!isNaN(perimeterValue) && perimeterValue > 0) {
                 newResults.push({
                   type: 'length',
                   label: `${name}_周长`,
-                  expression: perimeterCmd,
+                  expression: `Perimeter(${name})`,
                   exactValue: perimeterStr,
                   decimalValue: perimeterValue,
-                  description: `多边形 ${name} 的周长`
+                  description: `${objType === 'polygon' ? '多边形' : '曲线'} ${name} 的周长`
                 });
               }
 
-              // 清理临时对象
-              ggbApi.deleteObject(`perimeter_${name}`);
+              // 计算面积
+              let areaValue = NaN;
+              let areaStr = '';
+              try {
+                if (ggbApi.evalCommandCAS) {
+                  const casArea = ggbApi.evalCommandCAS(`Area(${name})`);
+                  if (casArea && casArea !== '?') {
+                    areaStr = casArea;
+                    const numResult = ggbApi.evalCommandCAS(`Numeric(Area(${name}))`);
+                    if (numResult && numResult !== '?') {
+                      areaValue = parseFloat(numResult);
+                    }
+                  }
+                }
+              } catch(e) {}
 
-              // 面积
-              const areaCmd = `Area(${name})`;
-              ggbApi.evalCommand(`area_${name} = ${areaCmd}`);
-              const areaValue = ggbApi.getValue(`area_${name}`);
-              const areaStr = ggbApi.getValueString(`area_${name}`, false);
+              // 回退逻辑
+              if (!areaStr || isNaN(areaValue)) {
+                const tempId = `temp_area_${Math.floor(Math.random()*100000)}`;
+                ggbApi.evalCommand(`${tempId} = Area(${name})`);
+                if (ggbApi.exists(tempId)) {
+                  areaValue = ggbApi.getValue(tempId);
+                  if (!areaStr) areaStr = ggbApi.getValueString(tempId, false);
+                  ggbApi.deleteObject(tempId);
+                }
+              }
 
               if (!isNaN(areaValue) && areaValue > 0) {
                 newResults.push({
                   type: 'area',
                   label: `${name}_面积`,
-                  expression: areaCmd,
+                  expression: `Area(${name})`,
                   exactValue: areaStr,
                   decimalValue: areaValue,
-                  description: `多边形 ${name} 的面积`
+                  description: `${objType === 'polygon' ? '多边形' : '曲线'} ${name} 的面积`
                 });
               }
-
-              // 清理临时对象
-              ggbApi.deleteObject(`area_${name}`);
             } catch (e) {
-              console.error(`Error processing polygon ${name}:`, e);
+              console.error(`Error processing closed curve ${name}:`, e);
             }
-          }
-
-          // 处理圆 (conic - circle)
-          if (objType === 'conic') {
-            try {
-              const cmdStr = ggbApi.getCommandString(name, false);
-              if (cmdStr.includes('Circle')) {
-                // 周长
-                const perimeterCmd = `Perimeter(${name})`;
-                ggbApi.evalCommand(`perimeter_${name} = ${perimeterCmd}`);
-                const perimeterValue = ggbApi.getValue(`perimeter_${name}`);
-                const perimeterStr = ggbApi.getValueString(`perimeter_${name}`, false);
-
-                if (!isNaN(perimeterValue) && perimeterValue > 0) {
-                  newResults.push({
-                    type: 'length',
-                    label: `${name}_周长`,
-                    expression: perimeterCmd,
-                    exactValue: perimeterStr,
-                    decimalValue: perimeterValue,
-                    description: `圆 ${name} 的周长`
-                  });
-                }
-
-                ggbApi.deleteObject(`perimeter_${name}`);
-
-                // 面积
-                const areaCmd = `Area(${name})`;
-                ggbApi.evalCommand(`area_${name} = ${areaCmd}`);
-                const areaValue = ggbApi.getValue(`area_${name}`);
-                const areaStr = ggbApi.getValueString(`area_${name}`, false);
-
-                if (!isNaN(areaValue) && areaValue > 0) {
-                  newResults.push({
-                    type: 'area',
-                    label: `${name}_面积`,
-                    expression: areaCmd,
-                    exactValue: areaStr,
-                    decimalValue: areaValue,
-                    description: `圆 ${name} 的面积`
-                  });
-                }
-
-                ggbApi.deleteObject(`area_${name}`);
-              }
-            } catch (e) {
-              console.error(`Error processing conic ${name}:`, e);
-            }
-          }
-
-          // 处理点之间的距离
-          if (objType === 'point') {
-            // 这部分在调试面板中已经处理，这里跳过
           }
 
         } catch (e) {

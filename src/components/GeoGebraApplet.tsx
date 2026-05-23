@@ -16,6 +16,7 @@ interface GeoGebraAppletProps {
 
 export interface GeoGebraAPI {
   evalCommand: (cmd: string) => boolean;
+  evalCommandCAS: (cmd: string) => string;
   reset: () => void;
   setCoordSystem: (xmin: number, xmax: number, ymin: number, ymax: number) => void;
   getValue: (name: string) => number;
