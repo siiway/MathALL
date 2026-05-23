@@ -1,6 +1,6 @@
-# MathALL 2.0.0
+# MathALL 
 
-MathALL 2.0.0 是一个现代化的、交互式的数学与几何学习和探索工具。通过结合强大的大语言模型（LLM）与 GeoGebra 的绘图能力，它能够将自然语言的数学问题转化为动态的几何图形与代码实现。
+MathALL是一个现代化的、交互式的数学与几何学习和探索工具。通过结合强大的大语言模型（LLM）与 GeoGebra 的绘图能力，它能够将自然语言的数学问题转化为动态的几何图形与代码实现。
 
 ## 核心特性
 
@@ -11,7 +11,7 @@ MathALL 2.0.0 是一个现代化的、交互式的数学与几何学习和探索
 
 - **深度集成的 GeoGebra 引擎**
   - 无缝嵌入 GeoGebra（支持 Classic 2D 与 3D 模式无缝切换）。
-  - 支持直接执行 GGB 指令代码（JavaScript 桥接）。
+  - 支持直接执行 GGB 指令代码。
   - 支持随时通过拖拽导入 `.ggb` 文件恢复现场。
 
 - **动态参数与控制系统**
@@ -61,7 +61,7 @@ pnpm run build
 - **语言**: TypeScript
 - **构建工具**: Vite
 - **样式**: Vanilla CSS (CSS Variables, Flexbox, CSS Grid)
-- **核心组件**: GeoGebra Applet (通过官方 API 桥接)
+- **核心组件**: GeoGebra JS
 - **图标**: Lucide React
 - **Markdown / Math**: react-markdown, remark-math, rehype-katex
 
