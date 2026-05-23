@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Settings, Moon, Sun, Download, Upload, ImagePlus, RefreshCw, X, ChevronDown, ChevronUp, Bot, Check, Maximize, Minimize, Copy, Bug } from 'lucide-react';
+import { Settings, Moon, Sun, Download, Upload, ImagePlus, RefreshCw, X, ChevronDown, ChevronUp, Bot, Check, Maximize, Minimize, Copy, Bug, Edit3 } from 'lucide-react';
 import GeoGebraApplet, { type GeoGebraAPI } from './components/GeoGebraApplet';
 import AlgebraHtmlRenderer from './components/AlgebraHtmlRenderer';
 import Toast from './components/Toast';
@@ -53,7 +53,7 @@ function App() {
   const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
   const [isGgbCodeExpanded, setIsGgbCodeExpanded] = useState(() => {
     const saved = localStorage.getItem('mathall-ggb-code-expanded');
-    return saved === 'false' ? false : false; // Default to collapsed
+    return saved === 'true'; // Default to collapsed if not 'true'
   });
   const [isDebugPanelOpen, setIsDebugPanelOpen] = useState(false);
   const [isAlgebraCalculatorOpen, setIsAlgebraCalculatorOpen] = useState(false);
@@ -89,10 +89,22 @@ function App() {
   const [enableCanvasFullscreen, setEnableCanvasFullscreen] = useState(() =>
     localStorage.getItem('mathall-enable-canvas-fullscreen') === 'true'
   );
+  const [enableGgbCodeEdit, setEnableGgbCodeEdit] = useState(() =>
+    localStorage.getItem('mathall-enable-ggb-code-edit') === 'true'
+  );
+  const [editableGgbCode, setEditableGgbCode] = useState('');
+  const [isGgbCodeEditModalOpen, setIsGgbCodeEditModalOpen] = useState(false);
 
   useEffect(() => {
     const loadSettings = () => {
       setEnableCanvasFullscreen(localStorage.getItem('mathall-enable-canvas-fullscreen') === 'true');
+      setEnableGgbCodeEdit(localStorage.getItem('mathall-enable-ggb-code-edit') === 'true');
+
+      const savedTheme = localStorage.getItem('mathall-theme') as 'light' | 'dark';
+      if (savedTheme) setTheme(savedTheme);
+
+      const savedColor = localStorage.getItem('mathall-primary-color');
+      if (savedColor) document.documentElement.style.setProperty('--primary-color', savedColor);
     };
     window.addEventListener('mathall-settings-updated', loadSettings);
     return () => window.removeEventListener('mathall-settings-updated', loadSettings);
@@ -201,6 +213,33 @@ function App() {
       return 'classic';
     }
     return null;
+  }, []);
+
+  // Helper function to extract GGB code from AI output
+  const extractGgbCode = useCallback((content: string): string => {
+    if (!content) return '';
+
+    // Pattern 1: 【RESULT】...【/RESULT】 (Chinese brackets)
+    let match = content.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
+    if (match) return match[1].trim();
+
+    // Pattern 2: ```RESULT\n...\n```
+    match = content.match(/```RESULT\s*\n([\s\S]*?)```/);
+    if (match) return match[1].trim();
+
+    // Pattern 3: ```ggb\n...\n``` or ```geogebra\n...\n```
+    match = content.match(/```(?:ggb|geogebra)\s*\n([\s\S]*?)```/i);
+    if (match) return match[1].trim();
+
+    // Pattern 4: **RESULT**\n...\n (without code fence)
+    match = content.match(/\*\*RESULT\*\*\s*\n([\s\S]*?)(?=\n\n|\n\*\*|$)/);
+    if (match) return match[1].trim();
+
+    // Pattern 5: RESULT:\n...\n
+    match = content.match(/RESULT:?\s*\n([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (match) return match[1].trim();
+
+    return content;
   }, []);
 
   const executeGgbCode = useCallback((api: GeoGebraAPI, code: string, shouldCheckMode = false) => {
@@ -353,26 +392,19 @@ function App() {
         }
       }
 
-      // 提取【RESULT】标记内的代码
-      const resultMatch = finalAiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
-      let extractedCode = finalAiCode;
-      if (resultMatch) {
-        extractedCode = resultMatch[1].trim();
-        console.log('Extracted code from RESULT tags:', extractedCode);
+      // 使用统一的提取逻辑
+      const extractedCode = extractGgbCode(finalAiCode);
+      console.log('Extracted code for execution:', extractedCode);
 
-        // Check MODE in extracted code and update if needed
+      if (finalRendererMode !== 'HTML_CANVAS') {
         const detectedMode = detectModeFromCode(extractedCode);
         if (detectedMode && detectedMode !== targetGgbApp && !appNameChanged) {
-          console.log(`MODE detected in RESULT: ${detectedMode}, switching from ${targetGgbApp}`);
+          console.log(`MODE detected in extraction: ${detectedMode}, switching from ${targetGgbApp}`);
           setGgbAppName(detectedMode);
           targetGgbApp = detectedMode;
           appNameChanged = true;
         }
-      } else {
-        console.warn('No RESULT tags found, using full output');
-      }
 
-      if (finalRendererMode !== 'HTML_CANVAS') {
         if (appNameChanged || ggbApiRef.current == null) {
            // Component is remounting, save code to be executed when ready
            setPendingGgbCode(extractedCode);
@@ -476,6 +508,70 @@ function App() {
           imageUrl={viewerImage}
           onClose={() => setViewerImage(null)}
         />
+      )}
+      {isGgbCodeEditModalOpen && (
+        <div className="image-modal-overlay" onClick={() => setIsGgbCodeEditModalOpen(false)}>
+          <div className="image-modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '90%' }}>
+            <div className="image-modal-header">
+              <h3>编辑 GGB 代码</h3>
+              <button className="btn-outline" style={{ border: 'none', padding: 4 }} onClick={() => setIsGgbCodeEditModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="image-modal-body" style={{ maxHeight: '60vh' }}>
+              <textarea
+                value={editableGgbCode}
+                onChange={(e) => setEditableGgbCode(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '400px',
+                  background: 'var(--bg-color)',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  lineHeight: '1.5',
+                  border: '1px solid var(--border-color)',
+                  fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", "Monaco", monospace',
+                  fontWeight: 500,
+                  letterSpacing: '0.02em',
+                  color: 'var(--text-primary)',
+                  resize: 'vertical'
+                }}
+              />
+            </div>
+            <div className="image-modal-footer" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button 
+                className="btn btn-outline" 
+                onClick={() => setIsGgbCodeEditModalOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (editableGgbCode) {
+                    if (ggbApiRef.current) {
+                      executeGgbCode(ggbApiRef.current, editableGgbCode, true);
+                      setToast({ message: '代码已应用到画板', type: 'success' });
+                    } else {
+                      // No API yet, check mode and set pending
+                      const detectedMode = detectModeFromCode(editableGgbCode);
+                      if (detectedMode && detectedMode !== ggbAppName) {
+                        setGgbAppName(detectedMode);
+                      }
+                      setPendingGgbCode(editableGgbCode);
+                      setToast({ message: '代码已保存，等待画板加载后执行', type: 'info' });
+                    }
+                    setIsGgbCodeEditModalOpen(false);
+                  }
+                }}
+                disabled={!editableGgbCode}
+              >
+                应用到画板
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {isCanvasFullscreen && (
         <div className="canvas-fullscreen-overlay">
@@ -611,19 +707,7 @@ function App() {
                       setIsDownloadOpen(false);
                       setTimeout(() => {
                         const ggbState = ggbApiRef.current?.getBase64();
-                        // Extract GGB code from aiCode
-                        let ggbCode = '';
-                        if (aiCode) {
-                          let match = aiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
-                          if (match) {
-                            ggbCode = match[1].trim();
-                          } else {
-                            match = aiCode.match(/```RESULT\s*\n([\s\S]*?)```/);
-                            if (match) {
-                              ggbCode = match[1].trim();
-                            }
-                          }
-                        }
+                        const ggbCode = extractGgbCode(aiCode);
                         if (ggbState) {
                           exportToHTML(ggbState, ggbAppName, problemText, imagesBase64, ggbCode, aiCode);
                         }
@@ -999,40 +1083,29 @@ function App() {
 
           <div className="panel-section">
             <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsGgbCodeExpanded(!isGgbCodeExpanded)}>
-              <span>GGB 代码</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {aiCode && (() => {
-                  // Try multiple patterns to extract GGB code
-                  let ggbCode = '';
-
-                  // Pattern 1: 【RESULT】...【/RESULT】 (Chinese brackets)
-                  let match = aiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
-                  if (match) {
-                    ggbCode = match[1].trim();
-                  } else {
-                    // Pattern 2: ```RESULT\n...\n```
-                    match = aiCode.match(/```RESULT\s*\n([\s\S]*?)```/);
-                    if (match) {
-                      ggbCode = match[1].trim();
-                    } else {
-                      // Pattern 3: **RESULT**\n...\n (without code fence)
-                      match = aiCode.match(/\*\*RESULT\*\*\s*\n([\s\S]*?)(?=\n\n|\n\*\*|$)/);
-                      if (match) {
-                        ggbCode = match[1].trim();
-                      } else {
-                        // Pattern 4: RESULT:\n...\n
-                        match = aiCode.match(/RESULT:?\s*\n([\s\S]*?)(?=\n\n|\n#|$)/);
-                        if (match) {
-                          ggbCode = match[1].trim();
-                        }
-                      }
-                    }
-                  }
-
-                  console.log('GGB Code extraction:', { found: !!ggbCode, length: ggbCode.length });
-
-                  return ggbCode ? (
+                <span>GGB 代码</span>
+                {(() => {
+                  const ggbCode = extractGgbCode(aiCode);
+                  return (
                     <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="btn btn-outline"
+                        style={{ 
+                          padding: '6px 12px', 
+                          fontSize: '0.85rem', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '4px'
+                        }}
+                        onClick={() => {
+                          setEditableGgbCode(ggbCode || '');
+                          setIsGgbCodeEditModalOpen(true);
+                        }}
+                      >
+                        <Edit3 size={14} />
+                        <span>编辑</span>
+                      </button>
                       <button
                         className="btn btn-outline"
                         style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
@@ -1040,7 +1113,6 @@ function App() {
                           if (ggbApiRef.current) {
                             executeGgbCode(ggbApiRef.current, ggbCode, true);
                           } else {
-                            // No API yet, check mode and set pending
                             const detectedMode = detectModeFromCode(ggbCode);
                             if (detectedMode && detectedMode !== ggbAppName) {
                               setGgbAppName(detectedMode);
@@ -1048,6 +1120,7 @@ function App() {
                             setPendingGgbCode(ggbCode);
                           }
                         }}
+                        disabled={!ggbCode}
                       >
                         <Upload size={14} style={{ transform: 'rotate(-90deg)' }} />
                         <span>导入画板</span>
@@ -1059,46 +1132,21 @@ function App() {
                           navigator.clipboard.writeText(ggbCode);
                           setToast({ message: '已复制到剪贴板', type: 'success' });
                         }}
+                        disabled={!ggbCode}
                       >
                         <Copy size={14} />
                         <span>复制</span>
                       </button>
                     </div>
-                  ) : null;
+                  );
                 })()}
-                {isGgbCodeExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
               </div>
+              {isGgbCodeExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </h3>
             {isGgbCodeExpanded && (
               <div className="panel-placeholder">
                 {aiCode && (() => {
-                  // Same extraction logic
-                  let ggbCode = '';
-
-                  // Pattern 1: 【RESULT】...【/RESULT】 (Chinese brackets)
-                  let match = aiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
-                  if (match) {
-                    ggbCode = match[1].trim();
-                  } else {
-                    // Pattern 2: ```RESULT\n...\n```
-                    match = aiCode.match(/```RESULT\s*\n([\s\S]*?)```/);
-                    if (match) {
-                      ggbCode = match[1].trim();
-                    } else {
-                      // Pattern 3: **RESULT**\n...\n (without code fence)
-                      match = aiCode.match(/\*\*RESULT\*\*\s*\n([\s\S]*?)(?=\n\n|\n\*\*|$)/);
-                      if (match) {
-                        ggbCode = match[1].trim();
-                      } else {
-                        // Pattern 4: RESULT:\n...\n
-                        match = aiCode.match(/RESULT:?\s*\n([\s\S]*?)(?=\n\n|\n#|$)/);
-                        if (match) {
-                          ggbCode = match[1].trim();
-                        }
-                      }
-                    }
-                  }
-
+                  const ggbCode = extractGgbCode(aiCode);
                   return ggbCode ? (
                     <pre style={{
                       background: 'var(--bg-color)',

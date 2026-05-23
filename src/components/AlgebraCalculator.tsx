@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Calculator, TrendingUp, Ruler, X, Copy, Check } from 'lucide-react';
 import type { GeoGebraAPI } from './GeoGebraApplet';
-import { formatSquareRoot, simplifySquareRoot } from '../utils/distanceCalculator';
+import { formatSquareRoot, simplifySquareRoot, decimalToExactRoot } from '../utils/distanceCalculator';
 
 interface AlgebraCalculatorProps {
   ggbApi: GeoGebraAPI | null;
@@ -50,14 +50,8 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
 
               // 如果是小数，尝试转换为根号
               if (!valueStr.includes('√') && !isNaN(decimalValue)) {
-                const squared = decimalValue * decimalValue;
-                const squaredInt = Math.round(squared * 1000000) / 1000000;
-                const squaredRounded = Math.round(squaredInt);
-
-                if (Math.abs(squaredInt - squaredRounded) < 0.0001) {
-                  const { coefficient, radicand } = simplifySquareRoot(squaredRounded);
-                  exactValue = formatSquareRoot(coefficient, radicand);
-                }
+                const converted = decimalToExactRoot(decimalValue);
+                if (converted) exactValue = converted;
               }
 
               newResults.push({

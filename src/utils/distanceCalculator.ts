@@ -46,6 +46,22 @@ export function formatSquareRoot(coefficient: number, radicand: number): string 
   return `${coefficient}√${radicand}`;
 }
 
+// 将小数值尝试转换为根号形式
+export function decimalToExactRoot(decimalValue: number): string {
+  if (isNaN(decimalValue)) return '';
+
+  const squared = decimalValue * decimalValue;
+  const squaredInt = Math.round(squared * 1000000) / 1000000;
+  const squaredRounded = Math.round(squaredInt);
+
+  if (Math.abs(squaredInt - squaredRounded) < 0.0001) {
+    const { coefficient, radicand } = simplifySquareRoot(squaredRounded);
+    return formatSquareRoot(coefficient, radicand);
+  }
+
+  return decimalValue.toFixed(6);
+}
+
 // 计算两点之间的距离（保留根号形式）
 export interface DistanceResult {
   decimal: number;

@@ -101,6 +101,9 @@ export default function SettingsPage() {
   const [enableCanvasFullscreen, setEnableCanvasFullscreen] = useState(() =>
     localStorage.getItem('mathall-enable-canvas-fullscreen') === 'true'
   );
+  const [enableGgbCodeEdit, setEnableGgbCodeEdit] = useState(() =>
+    localStorage.getItem('mathall-enable-ggb-code-edit') === 'true'
+  );
 
   // Auto-save on change
   useEffect(() => {
@@ -153,6 +156,11 @@ export default function SettingsPage() {
     localStorage.setItem('mathall-enable-canvas-fullscreen', enableCanvasFullscreen.toString());
     window.dispatchEvent(new Event('mathall-settings-updated'));
   }, [enableCanvasFullscreen]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-enable-ggb-code-edit', enableGgbCodeEdit.toString());
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [enableGgbCodeEdit]);
 
   const filteredItems = SIDEBAR_ITEMS
     .filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -552,6 +560,24 @@ export default function SettingsPage() {
                     type="checkbox"
                     checked={enableCanvasFullscreen}
                     onChange={e => setEnableCanvasFullscreen(e.target.checked)}
+                  />
+                  <span className="ios-toggle-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <div className="setting-group">
+              <div className="setting-group-title">代码编辑</div>
+              <div className="setting-row">
+                <div>
+                   <div className="setting-row-label">允许编辑 GGB 代码</div>
+                   <div className="setting-row-desc">启用后可在右侧面板直接编辑和应用 GeoGebra 代码</div>
+                </div>
+                <label className="ios-toggle">
+                  <input
+                    type="checkbox"
+                    checked={enableGgbCodeEdit}
+                    onChange={e => setEnableGgbCodeEdit(e.target.checked)}
                   />
                   <span className="ios-toggle-track"></span>
                 </label>

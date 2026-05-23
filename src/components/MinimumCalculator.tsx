@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Minimize2, X, Play, TrendingDown } from 'lucide-react';
 import type { GeoGebraAPI } from './GeoGebraApplet';
-import { formatSquareRoot, simplifySquareRoot } from '../utils/distanceCalculator';
+import { formatSquareRoot, simplifySquareRoot, decimalToExactRoot } from '../utils/distanceCalculator';
 
 interface MinimumCalculatorProps {
   ggbApi: GeoGebraAPI | null;
@@ -49,14 +49,8 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
             // 尝试转换为根号形式
             let exactValue = lengthStr;
             if (!lengthStr.includes('√') && !isNaN(length)) {
-              const squared = length * length;
-              const squaredInt = Math.round(squared * 1000000) / 1000000;
-              const squaredRounded = Math.round(squaredInt);
-
-              if (Math.abs(squaredInt - squaredRounded) < 0.0001) {
-                const { coefficient, radicand } = simplifySquareRoot(squaredRounded);
-                exactValue = formatSquareRoot(coefficient, radicand);
-              }
+              const converted = decimalToExactRoot(length);
+              if (converted) exactValue = converted;
             }
 
             segmentList.push({
@@ -189,16 +183,7 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
 
       // 转换为根号形式
       if (minValue !== Infinity) {
-        const squared = minValue * minValue;
-        const squaredInt = Math.round(squared * 1000000) / 1000000;
-        const squaredRounded = Math.round(squaredInt);
-
-        if (Math.abs(squaredInt - squaredRounded) < 0.0001) {
-          const { coefficient, radicand } = simplifySquareRoot(squaredRounded);
-          minValueExact = formatSquareRoot(coefficient, radicand);
-        } else {
-          minValueExact = minValue.toFixed(6);
-        }
+        minValueExact = decimalToExactRoot(minValue);
 
         setResult({
           segmentName: selectedSegment,
@@ -234,11 +219,11 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
   };
 
   // 当对话框打开时加载线段
-  useState(() => {
+  useEffect(() => {
     if (isOpen && ggbApi) {
       loadSegments();
     }
-  });
+  }, [isOpen, ggbApi]);
 
   if (!isOpen) return null;
 

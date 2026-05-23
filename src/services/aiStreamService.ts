@@ -186,15 +186,20 @@ export async function* fetchAIAnalysisStream(
             const match = accumulatedTag.match(/【(.*?)】/);
             if (match) {
                  tagFinished = true;
-                 const finalTag = match[1].substring(0,4);
+                 const finalTag = match[1];
                  const isPureAlgebra = finalTag.includes("代数") || finalTag.includes("计算") || finalTag.includes("方程") || finalTag.includes("答疑") || finalTag.includes("解析");
+
+                 // 提取标签之后的所有内容
+                 const tagEndIndex = accumulatedTag.indexOf('】') + 1;
+                 const contentAfterTag = accumulatedTag.substring(tagEndIndex);
+
                  yield {
                     tag: finalTag,
                     renderer: isPureAlgebra ? 'HTML_CANVAS' : 'GEOGEBRA',
-                    contentChunk: accumulatedTag.split("】").slice(1).join("】") || "",
+                    contentChunk: contentAfterTag,
                     done: false
                  };
-            } else if (accumulatedTag.length > 20 && !accumulatedTag.includes("【")) {
+            } else if (accumulatedTag.length > 50 && !accumulatedTag.includes("【")) {
                  tagFinished = true;
                  yield { 
                    tag: "通用分析", 

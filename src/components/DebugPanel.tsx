@@ -32,16 +32,16 @@ export default function DebugPanel({ ggbApi, onClose }: DebugPanelProps) {
 
         allObjects.forEach(name => {
           try {
-            // Check if it's a point by trying to get coordinates
-            const x = ggbApi.getXcoord(name);
-            const y = ggbApi.getYcoord(name);
-
-            if (!isNaN(x) && !isNaN(y)) {
+            const objType = ggbApi.getObjectType(name);
+            if (objType === 'point') {
+              const x = ggbApi.getXcoord(name);
+              const y = ggbApi.getYcoord(name);
               const pointInfo: PointInfo = { name, x, y };
 
               // Try to get Z coordinate for 3D points
               try {
-                const zValue = ggbApi.getValue(`z(${name})`);
+                // If it's a 3D point, getZcoord will return a number
+                const zValue = ggbApi.getZcoord(name);
                 if (!isNaN(zValue)) {
                   pointInfo.z = zValue;
                 }
@@ -52,7 +52,7 @@ export default function DebugPanel({ ggbApi, onClose }: DebugPanelProps) {
               pointsList.push(pointInfo);
             }
           } catch (e) {
-            // Not a point or error getting coordinates
+            // Error getting object info
           }
         });
 
