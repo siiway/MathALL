@@ -43,8 +43,8 @@ const DEFAULT_SYSTEM_PROMPT =
 /**
  * Build endpoint URL + headers based on the user's chosen proxy mode.
  *
- * - "builtin": Route through Vite dev-server's /api-proxy middleware.
- *   Node.js makes the outbound request → zero CORS issues. (dev only)
+ * - "builtin": Route through /api-proxy (Vite locally; Vercel Edge after deploy).
+ *   Server-side fetch avoids browser CORS.
  *
  * - "custom": Prepend the user's custom proxy URL to the real endpoint.
  *   e.g.  https://my-proxy.workers.dev/ + https://api.openai.com/v1/chat/completions
@@ -286,7 +286,7 @@ export async function* fetchAIAnalysisStream(
     if (name === 'TypeError') {
       const proxyMode = readStorage('mathall-proxy-mode') || 'builtin';
       if (proxyMode === 'builtin') {
-        throw new Error('网络请求失败。请确认 Vite 开发服务器 (pnpm run dev) 正在运行。如果是生产环境，请在设置中切换到“自定义代理”模式。');
+        throw new Error('网络请求失败。请检查网络连接；本地请确认开发服务器正在运行。');
       }
       throw new Error('网络请求失败。请检查代理地址是否正确、网络连接是否正常，以及 API 地址是否有效。');
     }

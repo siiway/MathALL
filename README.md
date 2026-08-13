@@ -48,6 +48,13 @@ pnpm run build
 ```
 打包输出将保存在 `dist/` 目录中。
 
+## 部署到 Vercel
+
+1. 在 [Vercel](https://vercel.com) 导入本 GitHub 仓库。
+2. 框架预设选 Vite；Build Command 为 pnpm build，Output Directory 为 dist（一般会自动检测）。
+3. 无需配置环境变量。用户在「设置」中自行添加模型与 API Key，凭据只存在浏览器 localStorage。
+4. 部署后内置代理（builtin）可用，与本地开发相同路径；刷新或深链到 /settings 不会 404。
+
 ## 使用指南
 
 1. **设置 API Key**：首次进入系统，点击左下角的设置齿轮，配置您的 API 接口地址、模型名称与 API Key（所有数据仅在本地 localStorage 留存）。

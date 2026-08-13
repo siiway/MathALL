@@ -1,0 +1,15 @@
+{
+  "outputDirectory": "dist",
+  "buildCommand": "pnpm build",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api-proxy/:path*",
+      "destination": "/api/proxy/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
