@@ -1,66 +1,9 @@
-// 计算最大公约数
-function gcd(a: number, b: number): number {
-  a = Math.abs(a);
-  b = Math.abs(b);
-  while (b !== 0) {
-    const temp = b;
-    b = a % b;
-    a = temp;
-  }
-  return a;
-}
+import { formatExact } from './exactValue';
 
-// 简化分数
-function simplifyFraction(numerator: number, denominator: number): { num: number; den: number } {
-  const divisor = gcd(numerator, denominator);
-  return {
-    num: numerator / divisor,
-    den: denominator / divisor
-  };
-}
-
-// 简化根号
-export function simplifySquareRoot(value: number): { coefficient: number; radicand: number } {
-  if (value === 0) return { coefficient: 0, radicand: 1 };
-  if (value < 0) return { coefficient: 0, radicand: 1 };
-
-  let coefficient = 1;
-  let radicand = Math.round(value);
-
-  // 提取完全平方因子
-  for (let i = 2; i * i <= radicand; i++) {
-    while (radicand % (i * i) === 0) {
-      coefficient *= i;
-      radicand /= (i * i);
-    }
-  }
-
-  return { coefficient, radicand };
-}
-
-// 格式化根号表达式
-export function formatSquareRoot(coefficient: number, radicand: number): string {
-  if (coefficient === 0) return '0';
-  if (radicand === 1) return coefficient.toString();
-  if (coefficient === 1) return `√${radicand}`;
-  return `${coefficient}√${radicand}`;
-}
-
-// 将小数值尝试转换为根号形式
-export function decimalToExactRoot(decimalValue: number): string {
-  if (isNaN(decimalValue)) return '';
-
-  const squared = decimalValue * decimalValue;
-  const squaredInt = Math.round(squared * 1000000) / 1000000;
-  const squaredRounded = Math.round(squaredInt);
-
-  if (Math.abs(squaredInt - squaredRounded) < 0.0001) {
-    const { coefficient, radicand } = simplifySquareRoot(squaredRounded);
-    return formatSquareRoot(coefficient, radicand);
-  }
-
-  return decimalValue.toFixed(6);
-}
+// 精确形式的识别统一收敛到 exactValue，这里只保留几何计算。
+// 旧版在本文件里手写了一套「平方是否接近整数 → 拆分数 → 判断分母是否完全平方」的
+// 分支，能力比 formatExact 弱（认不出 12/5、π/6），而且和 decimalToExactRoot 各算各的。
+export { simplifySquareRoot, formatSquareRoot, decimalToExactRoot, formatExact } from './exactValue';
 
 // 计算两点之间的距离（保留根号形式）
 export interface DistanceResult {
@@ -84,58 +27,11 @@ export function calculateDistance(
   const distanceSquared = dx * dx + dy * dy + dz * dz;
   const decimalDistance = Math.sqrt(distanceSquared);
 
-  // 尝试将距离平方转换为整数（处理浮点误差）
-  const distanceSquaredInt = Math.round(distanceSquared * 1000000) / 1000000;
-  const distanceSquaredRounded = Math.round(distanceSquaredInt);
-
-  let exact: string;
-
-  // 检查是否接近整数
-  if (Math.abs(distanceSquaredInt - distanceSquaredRounded) < 0.0001) {
-    const { coefficient, radicand } = simplifySquareRoot(distanceSquaredRounded);
-    exact = formatSquareRoot(coefficient, radicand);
-  } else {
-    // 尝试表示为分数形式的根号
-    // 例如：√(5/4) = (√5)/2
-    const scale = 10000;
-    const scaledSquared = Math.round(distanceSquaredInt * scale);
-    const { num, den } = simplifyFraction(scaledSquared, scale);
-
-    if (den === 1) {
-      const { coefficient, radicand } = simplifySquareRoot(num);
-      exact = formatSquareRoot(coefficient, radicand);
-    } else {
-      // 检查分子是否可以简化根号
-      const { coefficient, radicand } = simplifySquareRoot(num);
-      const denSqrt = Math.sqrt(den);
-
-      if (Math.abs(denSqrt - Math.round(denSqrt)) < 0.0001) {
-        // 分母是完全平方数
-        const denInt = Math.round(denSqrt);
-        if (radicand === 1) {
-          const { num: finalNum, den: finalDen } = simplifyFraction(coefficient, denInt);
-          exact = finalDen === 1 ? finalNum.toString() : `${finalNum}/${finalDen}`;
-        } else {
-          const { num: finalNum, den: finalDen } = simplifyFraction(coefficient, denInt);
-          if (finalDen === 1) {
-            exact = formatSquareRoot(finalNum, radicand);
-          } else {
-            exact = finalNum === 1
-              ? `√${radicand}/${finalDen}`
-              : `${finalNum}√${radicand}/${finalDen}`;
-          }
-        }
-      } else {
-        // 使用小数表示
-        exact = decimalDistance.toFixed(6);
-      }
-    }
-  }
-
   return {
     decimal: decimalDistance,
-    exact: exact,
-    squared: distanceSquaredInt
+    exact: formatExact(decimalDistance),
+    // 抹掉浮点噪声，让 3 这样的平方值不显示成 2.9999999996
+    squared: Math.round(distanceSquared * 1e6) / 1e6,
   };
 }
 

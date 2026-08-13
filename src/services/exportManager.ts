@@ -20,7 +20,16 @@ export function downloadGGB(api: GeoGebraAPI, filename: string = 'mathall_projec
   }
 }
 
-export function downloadProjectJSON(state: any, filename: string = 'mathall_state.json') {
+export interface ProjectState {
+  problemText: string;
+  tag: string;
+  aiCode: string;
+  htmlContent: string;
+  rendererMode: 'GEOGEBRA' | 'HTML_CANVAS' | null;
+  ggbBase64: string | null;
+}
+
+export function downloadProjectJSON(state: ProjectState, filename: string = 'mathall_state.json') {
   const jsonStr = JSON.stringify(state, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
   downloadBlob(blob, filename);
@@ -42,6 +51,12 @@ export function exportToHTML(ggbBase64: string, ggbAppName: 'classic' | '3d' | '
   if (!problemText && imagesBase64.length === 0) {
     problemHTML = '<p style="color: #999;">无题目内容</p>';
   }
+
+  // aiCode 是 Markdown 原文，直接塞进 HTML 会破坏结构（甚至注入脚本），
+  // 这里转义后用 pre-wrap 保留换行
+  const aiSection = aiCode
+    ? `<div style="white-space: pre-wrap;">${escapeHtml(aiCode)}</div>`
+    : '<p style="color:#999;">无 AI 分析内容</p>';
 
   const htmlContent = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -158,7 +173,7 @@ export function exportToHTML(ggbBase64: string, ggbAppName: 'classic' | '3d' | '
 
   <div class="section">
     <h2>AI 分析</h2>
-    <div>${aiCode || '无 AI 分析内容'}</div>
+    ${aiSection}
   </div>
 
   <footer style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #666;">
@@ -177,10 +192,10 @@ export function exportToHTML(ggbBase64: string, ggbAppName: 'classic' | '3d' | '
       enableShiftDragZoom: true,
       enableRightClick: true,
       showResetIcon: true,
-      ggbBase64: "${ggbBase64}",
+      ggbBase64: ${JSON.stringify(ggbBase64)},
       appletOnLoad: function(api) {
         ggbApp = api;
-        initSliders(api);
+        try { initSliders(api); } catch (e) { console.warn('init sliders failed', e); }
       }
     };
 
@@ -193,7 +208,7 @@ export function exportToHTML(ggbBase64: string, ggbAppName: 'classic' | '3d' | '
       for (var i = 0; i < allObjects.length; i++) {
         var objName = allObjects[i];
         var objType = api.getObjectType(objName);
-        if (objType === 'numeric' && api.isMoveable(objName)) {
+        if (objType === 'numeric' && (!api.isMoveable || api.isMoveable(objName))) {
           sliders.push(objName);
         }
       }
@@ -205,10 +220,11 @@ export function exportToHTML(ggbBase64: string, ggbAppName: 'classic' | '3d' | '
 
       // Create slider controls
       sliders.forEach(function(sliderName) {
-        var min = api.getMinimum(sliderName);
-        var max = api.getMaximum(sliderName);
+        var min = api.getMinimum ? api.getMinimum(sliderName) : -5;
+        var max = api.getMaximum ? api.getMaximum(sliderName) : 5;
         var value = api.getValue(sliderName);
-        var increment = api.getIncrement(sliderName) || 0.1;
+        var increment = (api.getIncrement && api.getIncrement(sliderName)) || 0.1;
+        if (!isFinite(min) || !isFinite(max) || min >= max) return;
 
         var controlDiv = document.createElement('div');
         controlDiv.className = 'slider-control';
@@ -234,11 +250,13 @@ export function exportToHTML(ggbBase64: string, ggbAppName: 'classic' | '3d' | '
         });
 
         // Listen to GeoGebra updates
-        api.registerUpdateListener(sliderName, function() {
-          var currentValue = api.getValue(sliderName);
-          slider.value = currentValue;
-          valueDisplay.textContent = currentValue.toFixed(2);
-        });
+        if (api.registerObjectUpdateListener) {
+          api.registerObjectUpdateListener(sliderName, function() {
+            var currentValue = api.getValue(sliderName);
+            slider.value = currentValue;
+            valueDisplay.textContent = currentValue.toFixed(2);
+          });
+        }
 
         controlDiv.appendChild(label);
         controlDiv.appendChild(slider);
@@ -270,8 +288,11 @@ function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  window.URL.revokeObjectURL(url);
   a.remove();
+  // 立即 revoke 会让部分浏览器（Firefox / 部分移动端）把大文件的下载中断，
+  // 留一帧时间让浏览器接管这个 URL
+  setTimeout(() => window.URL.revokeObjectURL(url), 10_000);
 }

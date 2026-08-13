@@ -1,7 +1,33 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Calculator, TrendingUp, Ruler, X, Copy, Check } from 'lucide-react';
 import type { GeoGebraAPI } from './GeoGebraApplet';
-import { decimalToExactRoot } from '../utils/distanceCalculator';
+import { formatExact } from '../utils/exactValue';
+
+/** 临时对象统一前缀，便于清理，也便于其它面板过滤掉它们。 */
+const TEMP_PREFIX = '__mathall_tmp_';
+let tempCounter = 0;
+
+/**
+ * 在画板里建一个临时对象求值，无论成功与否都保证删除。
+ * 旧实现用 Math.random() 命名且只在成功路径删除，报错时会把垃圾对象永久留在构造里。
+ */
+function withTempObject<T>(api: GeoGebraAPI, expression: string, fn: (name: string) => T): T | null {
+  const name = `${TEMP_PREFIX}${tempCounter++}`;
+  try {
+    if (!api.evalCommand(`${name} = ${expression}`)) return null;
+    if (!api.exists(name)) return null;
+    return fn(name);
+  } catch (e) {
+    console.warn('临时求值失败:', expression, e);
+    return null;
+  } finally {
+    try {
+      api.deleteObject(name);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 interface AlgebraCalculatorProps {
   ggbApi: GeoGebraAPI | null;
@@ -23,16 +49,20 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
   const [isCalculating, setIsCalculating] = useState(false);
   const [activeMode, setActiveMode] = useState<'trajectory' | 'extremum' | 'measure'>('measure');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+  }, []);
 
   // 提取所有对象的长度和面积
   const extractMeasurements = () => {
     if (!ggbApi) return;
 
-    setIsCalculating(true);
     const newResults: CalculationResult[] = [];
 
     try {
-      const allObjects = ggbApi.getAllObjectNames();
+      const allObjects = ggbApi.getAllObjectNames().filter(n => !n.startsWith(TEMP_PREFIX));
 
       allObjects.forEach(name => {
         try {
@@ -52,13 +82,13 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
                     exactValue = casResult;
                   }
                 }
-              } catch (casErr) {
+              } catch {
                 // Ignore CAS errors, fallback to previous method
               }
 
               // 如果精确值仍然是小数，并且没有根号，尝试自己转换
               if (!exactValue.includes('√') && !exactValue.includes('sqrt') && !isNaN(decimalValue)) {
-                const converted = decimalToExactRoot(decimalValue);
+                const converted = formatExact(decimalValue);
                 if (converted) exactValue = converted;
               }
 
@@ -92,17 +122,16 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
                     }
                   }
                 }
-              } catch(e) {}
-              
+              } catch {
+                // CAS 不可用时走下面的临时对象回退
+              }
+
               // 回退逻辑：如果 CAS 失败或没有结果
               if (!perimeterStr || isNaN(perimeterValue)) {
-                const tempId = `temp_perim_${Math.floor(Math.random()*100000)}`;
-                ggbApi.evalCommand(`${tempId} = Perimeter(${name})`);
-                if (ggbApi.exists(tempId)) {
+                withTempObject(ggbApi, `Perimeter(${name})`, tempId => {
                   perimeterValue = ggbApi.getValue(tempId);
                   if (!perimeterStr) perimeterStr = ggbApi.getValueString(tempId, false);
-                  ggbApi.deleteObject(tempId);
-                }
+                });
               }
 
               if (!isNaN(perimeterValue) && perimeterValue > 0) {
@@ -130,17 +159,16 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
                     }
                   }
                 }
-              } catch(e) {}
+              } catch {
+                // CAS 不可用时走下面的临时对象回退
+              }
 
               // 回退逻辑
               if (!areaStr || isNaN(areaValue)) {
-                const tempId = `temp_area_${Math.floor(Math.random()*100000)}`;
-                ggbApi.evalCommand(`${tempId} = Area(${name})`);
-                if (ggbApi.exists(tempId)) {
+                withTempObject(ggbApi, `Area(${name})`, tempId => {
                   areaValue = ggbApi.getValue(tempId);
                   if (!areaStr) areaStr = ggbApi.getValueString(tempId, false);
-                  ggbApi.deleteObject(tempId);
-                }
+                });
               }
 
               if (!isNaN(areaValue) && areaValue > 0) {
@@ -166,8 +194,6 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
       setResults(newResults);
     } catch (error) {
       console.error('Error extracting measurements:', error);
-    } finally {
-      setIsCalculating(false);
     }
   };
 
@@ -175,20 +201,11 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
   const calculateTrajectory = () => {
     if (!ggbApi) return;
 
-    setIsCalculating(true);
     const newResults: CalculationResult[] = [];
 
     try {
-      const allObjects = ggbApi.getAllObjectNames();
-
-      // 查找所有点对象
-      const points = allObjects.filter(name => {
-        try {
-          return ggbApi.getObjectType(name) === 'point';
-        } catch (e) {
-          return false;
-        }
-      });
+      // 直接按类型取，比逐个 getObjectType 少一轮跨 iframe 调用
+      const points = ggbApi.getAllObjectNames('point').filter(n => !n.startsWith(TEMP_PREFIX));
 
       // 对每个点显示坐标信息
       points.forEach(pointName => {
@@ -199,8 +216,8 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
 
           try {
             z = ggbApi.getZcoord(pointName);
-            if (isNaN(z)) z = undefined;
-          } catch (e) {
+            if (!Number.isFinite(z)) z = undefined;
+          } catch {
             z = undefined;
           }
 
@@ -229,7 +246,7 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
                 description: `点 ${pointName} 的定义`
               });
             }
-          } catch (e) {
+          } catch {
             // 无法获取命令
           }
         } catch (e) {
@@ -240,8 +257,6 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
       setResults(newResults);
     } catch (error) {
       console.error('Error calculating trajectory:', error);
-    } finally {
-      setIsCalculating(false);
     }
   };
 
@@ -249,11 +264,10 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
   const calculateExtremum = () => {
     if (!ggbApi) return;
 
-    setIsCalculating(true);
     const newResults: CalculationResult[] = [];
 
     try {
-      const allObjects = ggbApi.getAllObjectNames();
+      const allObjects = ggbApi.getAllObjectNames().filter(n => !n.startsWith(TEMP_PREFIX));
 
       // 查找所有数值对象和函数
       allObjects.forEach(name => {
@@ -289,13 +303,20 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
                 description: `函数 ${name} 的定义`
               });
 
-              // 尝试计算极值点
-              const extremumCmd = `Extremum(${name})`;
-              ggbApi.evalCommand(`extremum_${name} = ${extremumCmd}`);
+              // 尝试计算极值点：Extremum(f) 只对多项式可靠，
+              // 失败时退回到带区间的形式（withTempObject 失败会返回 null，不会留下垃圾对象）
+              let extremumCmd = `Extremum(${name})`;
+              let extremumStr = withTempObject(ggbApi, extremumCmd, tempId =>
+                ggbApi.getValueString(tempId, false)
+              );
+              if (!extremumStr) {
+                extremumCmd = `Extremum(${name}, -10, 10)`;
+                extremumStr = withTempObject(ggbApi, extremumCmd, tempId =>
+                  ggbApi.getValueString(tempId, false)
+                );
+              }
 
-              // 检查是否成功创建了极值点
-              if (ggbApi.exists(`extremum_${name}`)) {
-                const extremumStr = ggbApi.getValueString(`extremum_${name}`, false);
+              if (extremumStr) {
                 newResults.push({
                   type: 'extremum',
                   label: `${name}_极值`,
@@ -303,7 +324,6 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
                   exactValue: extremumStr,
                   description: `函数 ${name} 的极值点`
                 });
-                ggbApi.deleteObject(`extremum_${name}`);
               }
             } catch (e) {
               console.error(`Error processing function ${name}:`, e);
@@ -317,30 +337,47 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
       setResults(newResults);
     } catch (error) {
       console.error('Error calculating extremum:', error);
-    } finally {
-      setIsCalculating(false);
     }
   };
 
   const handleCalculate = () => {
-    switch (activeMode) {
-      case 'trajectory':
-        calculateTrajectory();
-        break;
-      case 'extremum':
-        calculateExtremum();
-        break;
-      case 'measure':
-        extractMeasurements();
-        break;
+    if (!ggbApi || isCalculating) return;
+    // 计算是同步的：如果在同一帧里 set 完再清掉，“计算中…”永远不会被渲染出来。
+    // 先让 loading 态渲染一帧，再跑实际计算。
+    setIsCalculating(true);
+    requestAnimationFrame(() => {
+      try {
+        if (activeMode === 'trajectory') calculateTrajectory();
+        else if (activeMode === 'extremum') calculateExtremum();
+        else extractMeasurements();
+      } finally {
+        setIsCalculating(false);
+      }
+    });
+  };
+
+  const copyToClipboard = async (text: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopiedIndex(null), 2000);
+    } catch {
+      // 非 HTTPS / 无剪贴板权限时 writeText 会 reject
+      console.warn('剪贴板不可用，已跳过复制');
     }
   };
 
-  const copyToClipboard = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
+  // Esc 关闭，与其它弹层行为保持一致
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleKeyDown]);
 
   if (!isOpen) return null;
 
@@ -508,7 +545,7 @@ export default function AlgebraCalculator({ ggbApi, isOpen, onClose }: AlgebraCa
             >
               <Calculator size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
               <p style={{ margin: 0, fontSize: '0.9rem' }}>
-                点击下方"开始计算"按钮进行分析
+                {ggbApi ? '点击下方“开始计算”按钮进行分析' : '画板尚未加载完成，请稍候再试'}
               </p>
             </div>
           ) : (

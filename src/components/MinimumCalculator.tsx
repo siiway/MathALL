@@ -1,7 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Minimize2, X, Play, TrendingDown } from 'lucide-react';
 import type { GeoGebraAPI } from './GeoGebraApplet';
-import { decimalToExactRoot } from '../utils/distanceCalculator';
+import { formatExact } from '../utils/exactValue';
+import { minimize, type SearchDimension } from '../utils/optimizer';
+
+/** 参与搜索的维度上限：每多一维，坐标下降的开销就多一轮全区间粗扫。 */
+const MAX_DIMENSIONS = 6;
+/** 自由点在原位置周围的搜索半径。 */
+const FREE_POINT_RADIUS = 10;
 
 interface MinimumCalculatorProps {
   ggbApi: GeoGebraAPI | null;
@@ -22,6 +28,97 @@ interface MinimumResult {
   currentValue: number;
   status: 'calculating' | 'success' | 'error';
   message?: string;
+  /** 取到最小值时各参数的取值，便于用户回到画板上验证。 */
+  argMin?: Array<{ name: string; value: number }>;
+}
+
+/**
+ * 读取滑块 / 自由数值的取值范围。
+ * 旧实现写的是 getValue("Min(t)")——getValue 只接受对象名，不接受表达式，
+ * 永远返回 NaN，导致整个滑块扫描是空跑。
+ */
+function readRange(api: GeoGebraAPI, name: string): { min: number; max: number } | null {
+  try {
+    const min = api.getMinimum?.(name);
+    const max = api.getMaximum?.(name);
+    if (Number.isFinite(min) && Number.isFinite(max) && (min as number) < (max as number)) {
+      return { min: min as number, max: max as number };
+    }
+  } catch {
+    /* 部分版本没有这两个方法，走下面的解析回退 */
+  }
+
+  try {
+    const cmd = api.getCommandString(name, false) || '';
+    const match = cmd.match(/Slider[[(]\s*([^,]+)\s*,\s*([^,)\]]+)/);
+    if (match) {
+      const min = parseFloat(match[1]);
+      const max = parseFloat(match[2]);
+      if (Number.isFinite(min) && Number.isFinite(max) && min < max) return { min, max };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/**
+ * 收集画板上所有"可以动"的量，作为搜索维度。
+ * 优先用滑块/自由数值：它们是题目显式给出的参数；只有在完全没有参数时
+ * 才退而求其次去挪自由点（挪点等于改变图形本身，通常不是题目的本意）。
+ */
+function collectDimensions(api: GeoGebraAPI): { dims: SearchDimension[]; restore: Array<() => void>; truncated: number } {
+  const dims: SearchDimension[] = [];
+  const restore: Array<() => void> = [];
+
+  for (const name of api.getAllObjectNames('numeric')) {
+    const range = readRange(api, name);
+    if (!range) continue;
+    const original = api.getValue(name);
+    if (!Number.isFinite(original)) continue;
+    restore.push(() => api.setValue(name, original));
+    dims.push({
+      name,
+      min: range.min,
+      max: range.max,
+      start: original,
+      set: value => api.setValue(name, value),
+    });
+  }
+
+  if (dims.length === 0) {
+    for (const name of api.getAllObjectNames('point')) {
+      let cmd = '';
+      try {
+        cmd = api.getCommandString(name, false) || '';
+      } catch {
+        continue;
+      }
+      // 有定义式的点是从属点，动不了
+      if (cmd && !cmd.includes('Point(')) continue;
+
+      const originalX = api.getXcoord(name);
+      const originalY = api.getYcoord(name);
+      if (!Number.isFinite(originalX) || !Number.isFinite(originalY)) continue;
+
+      // x、y 作为两个独立维度，但底层要一起写回去，所以共享一份坐标状态
+      const coords = { x: originalX, y: originalY };
+      const apply = () => api.setCoords(name, coords.x, coords.y);
+      restore.push(() => api.setCoords(name, originalX, originalY));
+
+      dims.push({
+        name: `${name}.x`, min: originalX - FREE_POINT_RADIUS, max: originalX + FREE_POINT_RADIUS,
+        start: originalX, set: v => { coords.x = v; apply(); },
+      });
+      dims.push({
+        name: `${name}.y`, min: originalY - FREE_POINT_RADIUS, max: originalY + FREE_POINT_RADIUS,
+        start: originalY, set: v => { coords.y = v; apply(); },
+      });
+    }
+  }
+
+  const truncated = Math.max(0, dims.length - MAX_DIMENSIONS);
+  return { dims: dims.slice(0, MAX_DIMENSIONS), restore, truncated };
 }
 
 export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCalculatorProps) {
@@ -30,190 +127,168 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
   const [result, setResult] = useState<MinimumResult | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [samplePoints, setSamplePoints] = useState(100);
+  const cancelRef = useRef(false);
 
   // 加载所有线段
-  const loadSegments = () => {
+  const loadSegments = useCallback(() => {
     if (!ggbApi) return;
 
     try {
-      const allObjects = ggbApi.getAllObjectNames();
       const segmentList: SegmentInfo[] = [];
 
-      allObjects.forEach(name => {
+      ggbApi.getAllObjectNames('segment').forEach(name => {
         try {
-          const objType = ggbApi.getObjectType(name);
-          if (objType === 'segment') {
-            const length = ggbApi.getValue(name);
-            const lengthStr = ggbApi.getValueString(name, false);
+          const length = ggbApi.getValue(name);
+          if (!Number.isFinite(length)) return;
+          const lengthStr = ggbApi.getValueString(name, false);
 
-            // 尝试转换为根号形式
-            let exactValue = lengthStr;
-            if (!lengthStr.includes('√') && !isNaN(length)) {
-              const converted = decimalToExactRoot(length);
-              if (converted) exactValue = converted;
-            }
-
-            segmentList.push({
-              name,
-              currentLength: length,
-              currentLengthExact: exactValue
-            });
+          // 尝试转换为根号形式
+          let exactValue = lengthStr;
+          if (!lengthStr.includes('√')) {
+            const converted = formatExact(length);
+            if (converted) exactValue = converted;
           }
-        } catch (e) {
+
+          segmentList.push({
+            name,
+            currentLength: length,
+            currentLengthExact: exactValue
+          });
+        } catch {
           // 跳过无法处理的对象
         }
       });
 
       setSegments(segmentList);
-      if (segmentList.length > 0 && !selectedSegment) {
-        setSelectedSegment(segmentList[0].name);
-      }
+      // 之前选中的线段可能已被删除/重建，这里做一次校正
+      setSelectedSegment(prev =>
+        prev && segmentList.some(s => s.name === prev)
+          ? prev
+          : (segmentList[0]?.name ?? '')
+      );
     } catch (error) {
       console.error('Error loading segments:', error);
     }
-  };
+  }, [ggbApi]);
 
   // 计算线段的最小值
   const calculateMinimum = async () => {
-    if (!ggbApi || !selectedSegment) return;
+    if (!ggbApi || !selectedSegment || isCalculating) return;
 
+    const api = ggbApi;
+    const target = selectedSegment;
+    const startValue = api.getValue(target);
+
+    cancelRef.current = false;
     setIsCalculating(true);
     setResult({
-      segmentName: selectedSegment,
+      segmentName: target,
       minimumValue: Infinity,
       minimumValueExact: '',
-      currentValue: ggbApi.getValue(selectedSegment),
+      currentValue: startValue,
       status: 'calculating'
     });
 
+    // 扫描会真的去改画板上的值，必须记下原始状态，无论成功、失败还是中途取消都还原
+    let restore: Array<() => void> = [];
+
     try {
-      // 获取线段的定义命令
-      const cmdStr = ggbApi.getCommandString(selectedSegment, false);
-      console.log('Segment definition:', cmdStr);
+      const collected = collectDimensions(api);
+      restore = collected.restore;
+      const { dims, truncated } = collected;
 
-      // 尝试找到可以移动的点（自由点或依赖于滑块的点）
-      const allObjects = ggbApi.getAllObjectNames();
-      const freePoints: string[] = [];
-      const sliders: string[] = [];
-
-      allObjects.forEach(name => {
-        try {
-          const objType = ggbApi.getObjectType(name);
-          if (objType === 'point') {
-            // 检查点是否可以移动
-            const cmdStr = ggbApi.getCommandString(name, false);
-            if (!cmdStr || cmdStr.length === 0 || cmdStr.includes('Point(')) {
-              freePoints.push(name);
-            }
-          } else if (objType === 'numeric') {
-            // 检查是否是滑块
-            const cmdStr = ggbApi.getCommandString(name, false);
-            if (cmdStr.includes('Slider')) {
-              sliders.push(name);
-            }
-          }
-        } catch (e) {
-          // 跳过
-        }
-      });
-
-      console.log('Free points:', freePoints);
-      console.log('Sliders:', sliders);
-
-      let minValue = Infinity;
-      let minValueExact = '';
-
-      // 如果有滑块，遍历滑块的值
-      if (sliders.length > 0) {
-        for (const slider of sliders) {
-          try {
-            // 获取滑块的范围
-            const min = ggbApi.getValue(`Min(${slider})`);
-            const max = ggbApi.getValue(`Max(${slider})`);
-            const step = (max - min) / samplePoints;
-
-            for (let i = 0; i <= samplePoints; i++) {
-              const value = min + i * step;
-              ggbApi.evalCommand(`${slider} = ${value}`);
-
-              // 等待一小段时间让 GeoGebra 更新
-              await new Promise(resolve => setTimeout(resolve, 1));
-
-              const length = ggbApi.getValue(selectedSegment);
-              if (!isNaN(length) && length < minValue) {
-                minValue = length;
-              }
-            }
-          } catch (e) {
-            console.error(`Error processing slider ${slider}:`, e);
-          }
-        }
-      }
-
-      // 如果有自由点，尝试在一定范围内移动
-      if (freePoints.length > 0 && minValue === Infinity) {
-        const searchRange = 10;
-        const searchStep = 0.5;
-
-        for (const point of freePoints) {
-          try {
-            const originalX = ggbApi.getXcoord(point);
-            const originalY = ggbApi.getYcoord(point);
-
-            for (let x = originalX - searchRange; x <= originalX + searchRange; x += searchStep) {
-              for (let y = originalY - searchRange; y <= originalY + searchRange; y += searchStep) {
-                ggbApi.evalCommand(`SetCoords(${point}, ${x}, ${y})`);
-
-                await new Promise(resolve => setTimeout(resolve, 1));
-
-                const length = ggbApi.getValue(selectedSegment);
-                if (!isNaN(length) && length < minValue) {
-                  minValue = length;
-                }
-              }
-            }
-
-            // 恢复原始位置
-            ggbApi.evalCommand(`SetCoords(${point}, ${originalX}, ${originalY})`);
-          } catch (e) {
-            console.error(`Error processing point ${point}:`, e);
-          }
-        }
-      }
-
-      // 转换为根号形式
-      if (minValue !== Infinity) {
-        minValueExact = decimalToExactRoot(minValue);
-
+      if (dims.length === 0) {
         setResult({
-          segmentName: selectedSegment,
-          minimumValue: minValue,
-          minimumValueExact: minValueExact,
-          currentValue: ggbApi.getValue(selectedSegment),
-          status: 'success',
-          message: `在 ${samplePoints} 个采样点中找到最小值`
-        });
-      } else {
-        setResult({
-          segmentName: selectedSegment,
+          segmentName: target,
           minimumValue: 0,
           minimumValueExact: '无法计算',
-          currentValue: ggbApi.getValue(selectedSegment),
+          currentValue: startValue,
           status: 'error',
-          message: '未找到可变动的参数（滑块或自由点）'
+          message: '未找到可变动的参数（滑块、自由数值或自由点）'
         });
+        return;
       }
-    } catch (error: any) {
+
+      const result = await minimize(dims, () => api.getValue(target), {
+        samples: samplePoints,
+        shouldCancel: () => cancelRef.current,
+        // 粗扫定位 + 黄金分割细化，函数值能收敛到接近双精度极限，
+        // 精确值识别才有意义
+        refineIterations: 80,
+      });
+
+      if (result.cancelled) {
+        setResult({
+          segmentName: target,
+          minimumValue: 0,
+          minimumValueExact: '已取消',
+          currentValue: startValue,
+          status: 'error',
+          message: '计算已取消，画板已恢复原状'
+        });
+        return;
+      }
+
+      if (result.constant) {
+        setResult({
+          segmentName: target,
+          minimumValue: result.value,
+          minimumValueExact: formatExact(result.value),
+          currentValue: startValue,
+          status: 'error',
+          message: `线段 ${target} 不随 ${dims.map(d => d.name).join('、')} 变化，长度恒为定值`
+        });
+        return;
+      }
+
+      if (!Number.isFinite(result.value)) {
+        setResult({
+          segmentName: target,
+          minimumValue: 0,
+          minimumValueExact: '无法计算',
+          currentValue: startValue,
+          status: 'error',
+          message: '所有采样点上线段都无定义，请检查构型'
+        });
+        return;
+      }
+
+      const notes = [
+        `${dims.length} 个参数联合搜索，${result.evaluations} 次求值，${result.rounds} 轮细化`,
+      ];
+      if (truncated > 0) {
+        notes.push(`另有 ${truncated} 个参数因超出上限（${MAX_DIMENSIONS} 维）未参与搜索`);
+      }
+
+      setResult({
+        segmentName: target,
+        minimumValue: result.value,
+        // 数值解带有约 1e-9 量级的残差，容差比直接测量值放宽
+        minimumValueExact: formatExact(result.value, { tolerance: 1e-7 }),
+        currentValue: startValue,
+        status: 'success',
+        message: notes.join('；'),
+        argMin: result.at,
+      });
+    } catch (error) {
       console.error('Error calculating minimum:', error);
       setResult({
-        segmentName: selectedSegment,
+        segmentName: target,
         minimumValue: 0,
         minimumValueExact: '计算失败',
-        currentValue: ggbApi.getValue(selectedSegment),
+        currentValue: startValue,
         status: 'error',
-        message: error.message || '计算过程中出现错误'
+        message: error instanceof Error ? error.message : '计算过程中出现错误'
       });
     } finally {
+      // 逆序还原，保证画板回到扫描前的状态
+      for (let i = restore.length - 1; i >= 0; i--) {
+        try {
+          restore[i]();
+        } catch (e) {
+          console.warn('恢复画板状态失败:', e);
+        }
+      }
       setIsCalculating(false);
     }
   };
@@ -223,7 +298,23 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
     if (isOpen && ggbApi) {
       loadSegments();
     }
-  }, [isOpen, ggbApi]);
+  }, [isOpen, ggbApi, loadSegments]);
+
+  // 关闭 / 卸载时中止正在进行的扫描，否则它会继续改画板
+  useEffect(() => {
+    if (!isOpen) {
+      cancelRef.current = true;
+      return;
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      cancelRef.current = true;
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -336,7 +427,7 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
           {/* 采样点数 */}
           <div>
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>
-              采样点数: {samplePoints}
+              每维粗扫点数: {samplePoints}
             </label>
             <input
               type="range"
@@ -349,8 +440,12 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
               <span>10 (快速)</span>
-              <span>500 (精确)</span>
+              <span>500 (不易漏极小点)</span>
             </div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: 1.5 }}>
+              粗扫只负责定位极小点所在区间，之后会自动用黄金分割细化到接近双精度极限，
+              所以最终精度不受这个点数限制；点数越大越不容易漏掉狭窄的极小点。
+            </p>
           </div>
 
           {/* 结果显示 */}
@@ -403,6 +498,18 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
                       {result.currentValue.toFixed(6)}
                     </div>
                   </div>
+                  {result.argMin && result.argMin.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                        取到最小值时
+                      </div>
+                      <div style={{ fontSize: '0.9rem', fontFamily: 'monospace', display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+                        {result.argMin.map(p => (
+                          <span key={p.name}>{p.name} = {formatExact(p.value, { tolerance: 1e-6, digits: 4 })}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {result.message && (
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: '8px' }}>
                       {result.message}
@@ -439,12 +546,16 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
             <Play size={18} />
             <span>{isCalculating ? '计算中...' : '开始计算'}</span>
           </button>
-          <button
-            onClick={onClose}
-            className="btn btn-outline"
-          >
-            关闭
-          </button>
+          {isCalculating ? (
+            // 采样点拉到 500 时扫描要跑好几秒，必须给用户一个中止入口
+            <button onClick={() => { cancelRef.current = true; }} className="btn btn-outline">
+              停止
+            </button>
+          ) : (
+            <button onClick={onClose} className="btn btn-outline">
+              关闭
+            </button>
+          )}
         </div>
       </div>
     </div>

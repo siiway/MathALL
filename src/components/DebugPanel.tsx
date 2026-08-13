@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Ruler } from 'lucide-react';
 import type { GeoGebraAPI } from './GeoGebraApplet';
 import { calculateAllDistances, type PointPairDistance } from '../utils/distanceCalculator';
@@ -17,54 +17,58 @@ interface PointInfo {
 
 type TabType = 'points' | 'distances';
 
+/** 点集签名：坐标没变就不重算距离、不触发重渲染。 */
+function signature(points: PointInfo[]): string {
+  return points
+    .map(p => `${p.name}:${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z?.toFixed(6) ?? ''}`)
+    .join('|');
+}
+
 export default function DebugPanel({ ggbApi, onClose }: DebugPanelProps) {
   const [points, setPoints] = useState<PointInfo[]>([]);
   const [distances, setDistances] = useState<PointPairDistance[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('points');
+  const signatureRef = useRef('');
 
   useEffect(() => {
     if (!ggbApi) return;
 
     const updatePoints = () => {
       try {
-        const allObjects = ggbApi.getAllObjectNames();
+        const allObjects = ggbApi.getAllObjectNames('point');
         const pointsList: PointInfo[] = [];
 
         allObjects.forEach(name => {
           try {
-            const objType = ggbApi.getObjectType(name);
-            if (objType === 'point') {
-              const x = ggbApi.getXcoord(name);
-              const y = ggbApi.getYcoord(name);
-              const pointInfo: PointInfo = { name, x, y };
+            const x = ggbApi.getXcoord(name);
+            const y = ggbApi.getYcoord(name);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+            const pointInfo: PointInfo = { name, x, y };
 
-              // Try to get Z coordinate for 3D points
-              try {
-                // If it's a 3D point, getZcoord will return a number
-                const zValue = ggbApi.getZcoord(name);
-                if (!isNaN(zValue)) {
-                  pointInfo.z = zValue;
-                }
-              } catch (e) {
-                // Not a 3D point or z not available
+            // Try to get Z coordinate for 3D points
+            try {
+              // If it's a 3D point, getZcoord will return a number
+              const zValue = ggbApi.getZcoord(name);
+              if (Number.isFinite(zValue)) {
+                pointInfo.z = zValue;
               }
-
-              pointsList.push(pointInfo);
+            } catch {
+              // Not a 3D point or z not available
             }
-          } catch (e) {
+
+            pointsList.push(pointInfo);
+          } catch {
             // Error getting object info
           }
         });
 
-        setPoints(pointsList);
+        // 每 500ms 无脑 setState 会让面板一直重渲染，并把 O(n²) 的距离表重算一遍
+        const next = signature(pointsList);
+        if (next === signatureRef.current) return;
+        signatureRef.current = next;
 
-        // Calculate distances between all point pairs
-        if (pointsList.length > 1) {
-          const allDistances = calculateAllDistances(pointsList);
-          setDistances(allDistances);
-        } else {
-          setDistances([]);
-        }
+        setPoints(pointsList);
+        setDistances(pointsList.length > 1 ? calculateAllDistances(pointsList) : []);
       } catch (e) {
         console.error('Error updating points:', e);
       }

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { X, AlertCircle, CheckCircle, Info } from 'lucide-react';
 
 interface ToastProps {
@@ -9,12 +9,20 @@ interface ToastProps {
 }
 
 export default function Toast({ message, type = 'info', duration = 3000, onClose }: ToastProps) {
+  // 父组件通常传内联箭头函数，直接放进依赖里会让父组件每次重渲染都重置计时器
+  // （流式输出时父组件每秒渲染多次，Toast 就永远不会自动消失）
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (duration > 0) {
-      const timer = setTimeout(onClose, duration);
+      const timer = setTimeout(() => onCloseRef.current(), duration);
       return () => clearTimeout(timer);
     }
-  }, [duration, onClose]);
+  }, [duration, message]);
 
   const icons = {
     success: <CheckCircle size={20} />,

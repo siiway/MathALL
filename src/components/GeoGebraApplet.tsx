@@ -1,8 +1,9 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
+import { readStorage } from '../utils/storage';
 
 declare global {
   interface Window {
-    GGBApplet: new (params: Record<string, unknown>, version?: string) => {
+    GGBApplet: new (params: Record<string, unknown>, version?: string | boolean) => {
       inject: (el: string | HTMLElement) => void;
     };
   }
@@ -12,6 +13,11 @@ interface GeoGebraAppletProps {
   id?: string;
   appName?: 'classic' | '3d' | 'geometry';
   onReady?: (api: GeoGebraAPI) => void;
+  /**
+   * 销毁 applet 之前触发，调用方可以在这里保存现场。
+   * 卸载时子组件的清理会先于父组件执行，父组件在自己的 cleanup 里已经拿不到可用的 api。
+   */
+  onBeforeDestroy?: (api: GeoGebraAPI) => void;
 }
 
 export interface GeoGebraAPI {
@@ -50,97 +56,103 @@ export interface GeoGebraAPI {
   setLabelVisible: (name: string, visible: boolean) => void;
   setLabelStyle: (name: string, style: number) => void;
   setCoords: (name: string, x: number, y: number, z?: number) => void;
+  /** 可选：不同 GGB 版本对以下 API 的支持不一致，调用前需判空 */
+  setSize?: (width: number, height: number) => void;
+  getMinimum?: (name: string) => number;
+  getMaximum?: (name: string) => number;
+  remove?: () => void;
 }
 
-export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic', onReady }: GeoGebraAppletProps) {
+/** appName → GGB perspective code（"T" 才是 3D 图形区，旧代码里的 "5" 是错的）。 */
+const PERSPECTIVE: Record<NonNullable<GeoGebraAppletProps['appName']>, string> = {
+  classic: 'G',
+  geometry: '2',
+  '3d': 'T',
+};
+
+export default function GeoGebraApplet({
+  id = 'ggb-applet',
+  appName = 'classic',
+  onReady,
+  onBeforeDestroy,
+}: GeoGebraAppletProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<GeoGebraAPI | null>(null);
-  const injectedRef = useRef(false);
 
   // Use a ref to store the latest onReady callback to prevent stale closure issues
   const onReadyRef = useRef(onReady);
+  const onBeforeDestroyRef = useRef(onBeforeDestroy);
   useEffect(() => {
     onReadyRef.current = onReady;
-  }, [onReady]);
+    onBeforeDestroyRef.current = onBeforeDestroy;
+  }, [onReady, onBeforeDestroy]);
 
-  const handleAppletLoad = useCallback(() => {
-    // The GGB API is available on the global scope as `window[id]`
-    const api = (window as unknown as Record<string, GeoGebraAPI>)[id];
-    if (api) {
-      apiRef.current = api;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-      if (appName === 'classic') {
-        api.evalCommand('SetPerspective("G")');
-      } else if (appName === 'geometry') {
-        api.evalCommand('SetPerspective("2")');
-      } else if (appName === '3d') {
-        api.evalCommand('SetPerspective("5")');
-      }
+    let disposed = false;
+    let readyFired = false;
 
-      // Inject user-configured background color into GeoGebra via XML
-      const bgColor = localStorage.getItem('mathall-ggb-bgcolor') || '#ffffff';
+    // Clear out any existing applet to guarantee fresh re-mount on language change
+    container.innerHTML = '';
+    const previous = (window as unknown as Record<string, GeoGebraAPI | undefined>)[id];
+    try {
+      previous?.remove?.();
+    } catch {
+      /* ignore */
+    }
+
+    const applyBackgroundColor = (api: GeoGebraAPI) => {
+      const bgColor = readStorage('mathall-ggb-bgcolor') || '#ffffff';
+      if (!/^#[0-9a-fA-F]{6}$/.test(bgColor)) return;
       try {
         const xml = api.getXML();
-        // Parse hex to RGB
         const r = parseInt(bgColor.slice(1, 3), 16);
         const g = parseInt(bgColor.slice(3, 5), 16);
         const b = parseInt(bgColor.slice(5, 7), 16);
-        // Replace or inject bgColor in the euclidianView XML
-        let newXml = xml;
-        if (xml.includes('bgColor')) {
-          newXml = xml.replace(/bgColor="[^"]*"/g, `bgColor="#${bgColor.slice(1)}"`);
-        } else {
-          // Inject bgColor attribute into the <euclidianView> tag
-          newXml = xml.replace(
-            /<euclidianView>/,
-            `<euclidianView>\n<bgColor r="${r}" g="${g}" b="${b}"/>`
-          );
-        }
+
+        const newXml = xml.includes('<bgColor')
+          ? xml.replace(/<bgColor[^>]*\/>/g, `<bgColor r="${r}" g="${g}" b="${b}"/>`)
+          : xml.replace(/<euclidianView>/, `<euclidianView>\n<bgColor r="${r}" g="${g}" b="${b}"/>`);
+
         if (newXml !== xml) {
           api.setXML(newXml);
-          if (appName === 'classic') {
-            api.evalCommand('SetPerspective("G")');
-          } else if (appName === 'geometry') {
-            api.evalCommand('SetPerspective("2")');
-          } else if (appName === '3d') {
-            api.evalCommand('SetPerspective("5")');
-          }
+          // setXML 会重置视角，需要重新指定
+          api.evalCommand(`SetPerspective("${PERSPECTIVE[appName]}")`);
         }
       } catch (e) {
         console.warn('Failed to set GeoGebra background color via XML:', e);
       }
+    };
 
+    const handleAppletLoad = (api: GeoGebraAPI) => {
+      // GGB 在个别版本里会同时触发 appletOnLoad 与全局 ggbOnInit，去重避免代码执行两次
+      if (disposed || readyFired) return;
+      readyFired = true;
+
+      apiRef.current = api;
+      try {
+        api.evalCommand(`SetPerspective("${PERSPECTIVE[appName]}")`);
+      } catch (e) {
+        console.warn('Failed to set perspective:', e);
+      }
+      applyBackgroundColor(api);
       onReadyRef.current?.(api);
-    }
-  }, [id, appName]);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    
-    // Clear out any existing applet to guarantee fresh re-mount on language change
-    if (containerRef.current) {
-      containerRef.current.innerHTML = '';
-    }
-    try {
-       const existingApi = (window as any)[id];
-       if (existingApi && existingApi.remove) {
-          existingApi.remove();
-       }
-    } catch(e){}
+    };
 
     const callbackName = `ggbOnInit_${id.replace(/-/g, '_')}`;
-    (window as unknown as Record<string, () => void>)[callbackName] = handleAppletLoad;
+    (window as unknown as Record<string, unknown>)[callbackName] = () => {
+      const api = (window as unknown as Record<string, GeoGebraAPI | undefined>)[id];
+      if (api) handleAppletLoad(api);
+    };
 
-    const ggbLanguage = localStorage.getItem('mathall-ggb-language') || 'zh';
-
-    const containerWidth = containerRef.current.clientWidth || 800;
-    const containerHeight = containerRef.current.clientHeight || 600;
-    console.log('GeoGebra container size:', containerWidth, 'x', containerHeight);
+    const ggbLanguage = readStorage('mathall-ggb-language') || 'zh';
 
     const params: Record<string, unknown> = {
       appName: appName,
-      width: containerWidth,
-      height: containerHeight,
+      width: container.clientWidth || 800,
+      height: container.clientHeight || 600,
       codebase: '/GeoGebra/HTML5/5.0/web3d/',
       showToolBar: false,
       showAlgebraInput: false,
@@ -156,57 +168,80 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
       id: id,
       algebraInputPosition: 'none',
       showAlgebraView: false,
-      perspective: appName === '3d' ? 'T' : (appName === 'geometry' ? '2' : 'G'),
-      appletOnLoad: (api: GeoGebraAPI) => {
-        apiRef.current = api;
-        // Set perspective based on appName
-        if (appName === 'classic') {
-          api.evalCommand('SetPerspective("G")');
-        } else if (appName === 'geometry') {
-          api.evalCommand('SetPerspective("2")');
-        } else if (appName === '3d') {
-          api.evalCommand('SetPerspective("T")');
-        }
-        onReadyRef.current?.(api);
-      },
+      perspective: PERSPECTIVE[appName],
+      appletOnLoad: handleAppletLoad,
     };
 
-    const ggbApp = new window.GGBApplet(params, '6.0');
-  
-    try {
-      ggbApp.inject(containerRef.current);
-      injectedRef.current = true;
-    } catch (e) {
-      console.warn('GeoGebra not ready yet, retrying...', e);
-      const timer = setTimeout(() => {
-        if (containerRef.current && window.GGBApplet) {
-          ggbApp.inject(containerRef.current);
-          injectedRef.current = true;
+    // deployggb.js 是普通 <script>，React 挂载时不一定已就绪，直接 new 会抛 TypeError
+    let retryTimer: number | null = null;
+    const tryInject = (attempt = 0) => {
+      if (disposed || !containerRef.current) return;
+      if (!window.GGBApplet) {
+        if (attempt >= 40) { // ~10s
+          console.error('GeoGebra deployggb.js 加载失败，画板无法初始化');
+          return;
         }
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
+        retryTimer = window.setTimeout(() => tryInject(attempt + 1), 250);
+        return;
+      }
+      try {
+        new window.GGBApplet(params, '6.0').inject(containerRef.current);
+      } catch (e) {
+        console.error('GeoGebra inject failed:', e);
+      }
+    };
+    tryInject();
 
     return () => {
+      disposed = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
       delete (window as unknown as Record<string, unknown>)[callbackName];
+      // 先让调用方存档，再销毁：销毁之后 getBase64 就取不到东西了
+      if (apiRef.current) {
+        try {
+          onBeforeDestroyRef.current?.(apiRef.current);
+        } catch (e) {
+          console.warn('onBeforeDestroy failed:', e);
+        }
+      }
+      // 不销毁 applet 会在模式切换 / 路由跳转时残留整个 GGB 运行时，非常吃内存
+      try {
+        apiRef.current?.remove?.();
+      } catch {
+        /* ignore */
+      }
+      apiRef.current = null;
+      delete (window as unknown as Record<string, unknown>)[id];
+      container.innerHTML = '';
     };
-  }, [id, appName, handleAppletLoad]);
+  }, [id, appName]);
 
-  // Responsive resize
+  // Responsive resize —— 仅改 DOM 尺寸 GGB 不会重绘，必须调用 setSize
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const ro = new ResizeObserver(() => {
-      // GeoGebra handles its own resizing via container dimensions
-      const frame = container.querySelector('iframe, article, div[id]');
-      if (frame instanceof HTMLElement) {
-        frame.style.width = '100%';
-        frame.style.height = '100%';
-      }
+    let frame = 0;
+    const ro = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) return;
+      // ResizeObserver 每帧可能触发多次，用 rAF 合并，避免连续 setSize 造成卡顿
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const { width, height } = entry.contentRect;
+        if (width < 1 || height < 1) return;
+        try {
+          apiRef.current?.setSize?.(Math.round(width), Math.round(height));
+        } catch {
+          /* 部分版本不支持 setSize */
+        }
+      });
     });
     ro.observe(container);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      ro.disconnect();
+    };
   }, []);
 
   return (
@@ -216,7 +251,7 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
       style={{
         width: '100%',
         height: '100%',
-        background: localStorage.getItem('mathall-ggb-bgcolor') || '#ffffff',
+        background: readStorage('mathall-ggb-bgcolor') || '#ffffff',
         borderRadius: '12px',
         overflow: 'hidden',
         position: 'relative',

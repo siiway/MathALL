@@ -22,6 +22,13 @@ const WEB_SAFE_COLORS = [
 
 const APP_VERSION = 'PRE-2.0.0';
 
+/** 数量类输入统一夹紧到 1~20，避免手输负数/超大值写进配置。 */
+function clampCount(raw: string): number {
+  const parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return 1;
+  return Math.min(20, Math.max(1, parsed));
+}
+
 type SettingsSection = 'appearance' | 'ai' | 'prompt' | 'experimental' | 'about';
 
 interface AIModel {
@@ -86,9 +93,15 @@ export default function SettingsPage() {
 
   // AI Models management
   const [aiModels, setAiModels] = useState<AIModel[]>(() => {
+    // 损坏的 JSON 会让整个设置页在首次渲染时抛异常白屏
     const saved = localStorage.getItem('mathall-ai-models');
     if (saved) {
-      return JSON.parse(saved);
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        console.warn('mathall-ai-models 内容损坏，已忽略');
+      }
     }
     // Migrate old single model config if exists
     const oldProvider = localStorage.getItem('mathall-api-provider');
@@ -240,7 +253,8 @@ export default function SettingsPage() {
   // AI Model management functions
   const addNewModel = () => {
     const newModel: AIModel = {
-      id: Date.now().toString(),
+      // 同一毫秒内连点两次「添加」会撞 id，加随机后缀保证唯一
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       name: `模型 ${aiModels.length + 1}`,
       provider: 'openai',
       baseUrl: '',
@@ -254,8 +268,9 @@ export default function SettingsPage() {
   const deleteModel = (id: string) => {
     const filtered = aiModels.filter(m => m.id !== id);
     setAiModels(filtered);
-    if (selectedModelId === id && filtered.length > 0) {
-      setSelectedModelId(filtered[0].id);
+    // 删光时也要清空选中项，否则会残留一个指向已删除模型的 id
+    if (selectedModelId === id) {
+      setSelectedModelId(filtered[0]?.id ?? '');
     }
   };
 
@@ -263,10 +278,10 @@ export default function SettingsPage() {
     setAiModels(aiModels.map(m => m.id === id ? { ...m, ...updates } : m));
   };
 
-  const handleSearchResultClick = (category: SettingsSection, _id: string) => {
+  const handleSearchResultClick = (category: SettingsSection) => {
     setActiveSection(category);
+    setMobileDetail(isMobile ? category : null);
     setSearchQuery('');
-    // TODO: Scroll to element or highlight
   };
 
   const renderSectionContent = (section: SettingsSection) => {
@@ -292,7 +307,7 @@ export default function SettingsPage() {
                 <button
                   key={item.id}
                   className="search-result-card"
-                  onClick={() => handleSearchResultClick(item.category, item.id)}
+                  onClick={() => handleSearchResultClick(item.category)}
                 >
                   <div className="search-result-card-main">
                     <div className="search-result-card-icon">
@@ -456,20 +471,25 @@ export default function SettingsPage() {
                   let baseUrlPlaceholder = "例如 https://api.openai.com/v1";
                   let baseUrlLabel = "API Base URL";
                   let modelPlaceholder = "例如 gpt-4o, deepseek-chat";
+                  let apiKeyPlaceholder = "sk-...";
 
                   if (model.provider === 'gemini') {
                     baseUrlPlaceholder = "默认: https://generativelanguage.googleapis.com";
                     modelPlaceholder = "例如 gemini-1.5-pro, gemini-2.0-flash";
+                    apiKeyPlaceholder = "Google AI Studio 的 API Key";
                   } else if (model.provider === 'cloudflare') {
                     baseUrlLabel = "Account ID";
                     baseUrlPlaceholder = "填入您的 Cloudflare Account ID";
                     modelPlaceholder = "例如 @cf/meta/llama-3-8b-instruct";
+                    apiKeyPlaceholder = "Cloudflare API Token";
                   } else if (model.provider === 'anthropic') {
                     baseUrlPlaceholder = "默认: https://api.anthropic.com";
-                    modelPlaceholder = "例如 claude-3-5-sonnet-20240620";
+                    modelPlaceholder = "例如 claude-sonnet-5, claude-opus-5";
+                    apiKeyPlaceholder = "sk-ant-...";
                   } else if (model.provider === 'ollama') {
                     baseUrlPlaceholder = "例如 http://127.0.0.1:11434/v1";
                     modelPlaceholder = "例如 qwen2.5:7b, llama3.1";
+                    apiKeyPlaceholder = "本地部署可随意填写，例如 ollama";
                   }
 
                   return (
@@ -616,8 +636,8 @@ export default function SettingsPage() {
                           className="settings-input"
                           placeholder={baseUrlPlaceholder}
                           value={model.baseUrl}
-                          disabled={true}
-                          style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                          spellCheck={false}
+                          autoComplete="off"
                           onChange={e => updateModel(model.id, { baseUrl: e.target.value })}
                         />
                       </div>
@@ -627,10 +647,10 @@ export default function SettingsPage() {
                         <input
                           type="password"
                           className="settings-input"
-                          placeholder="此应用的自定义 API 功能已被封闭"
+                          placeholder={apiKeyPlaceholder}
                           value={model.apiKey}
-                          disabled={true}
-                          style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                          spellCheck={false}
+                          autoComplete="off"
                           onChange={e => updateModel(model.id, { apiKey: e.target.value })}
                         />
                       </div>
@@ -681,6 +701,11 @@ export default function SettingsPage() {
             <div className="setting-row-desc" style={{ marginBottom: 16 }}>
               包含暴力建系公式（距离、中点、鞋带公式等）约束以及指令输出格式规范。您可以随时优化以提升 AI 的分析表现。
             </div>
+            <div className="setting-row-desc" style={{ marginBottom: 16, lineHeight: 1.6 }}>
+              主界面选择「高中」或「大学」学段时，系统会在这段提示词<strong style={{ color: 'var(--text-primary)' }}>之后自动追加</strong>
+              该学段的专属指令（知识范围、解法结构、对应的 GeoGebra 画法），不会覆盖您在这里写的输出格式规范。
+              选择「通用」则不追加任何内容。
+            </div>
             <textarea
               className="settings-textarea"
               value={systemPrompt}
@@ -713,7 +738,8 @@ export default function SettingsPage() {
                   max="20"
                   style={{ width: '80px', textAlign: 'center' }}
                   value={maxImages}
-                  onChange={e => setMaxImages(parseInt(e.target.value) || 1)}
+                  // min/max 只是浏览器提示，手输 999 一样会被写进配置，这里显式夹紧
+                  onChange={e => setMaxImages(clampCount(e.target.value))}
                 />
               </div>
               <div className="setting-row">
@@ -728,7 +754,7 @@ export default function SettingsPage() {
                   max="20"
                   style={{ width: '80px', textAlign: 'center' }}
                   value={imageModalThreshold}
-                  onChange={e => setImageModalThreshold(parseInt(e.target.value) || 1)}
+                  onChange={e => setImageModalThreshold(clampCount(e.target.value))}
                 />
               </div>
             </div>
